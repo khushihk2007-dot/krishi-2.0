@@ -7,9 +7,10 @@ import { FieldIntelligencePanel } from "@/components/FieldIntelligencePanel";
 import { KrishiMap } from "@/components/KrishiMap";
 import { getRegionContent, Language, RegionId, regions } from "@/data/krishiMysuru";
 import { fpos } from "@/data/fpos";
-import { buyerListings, fpoBulkLots, activeTracking, trackingLabels } from "@/data/buyerData";
+import { buyerListings, fpoBulkLots, activeTracking, trackingLabels, type Listing } from "@/data/buyerData";
 import { liveMandiPrices, rentalVehicles } from "@/data/marketData";
 import { availableLabour } from "@/data/labourCrewData";
+import { getCrops } from "@/services/cropService";
 
 type AuthRole = "farmer" | "buyer" | "labourer";
 type Role = "home" | "farmer" | "buyer" | "labourer" | "farmerAuth" | "buyerAuth" | "labourerAuth" | "farmerProfile";
@@ -202,9 +203,51 @@ const Index = () => {
   const fpoLotsRef = useRef<HTMLDivElement>(null);
   const trackingRef = useRef<HTMLDivElement>(null);
 
+  const [cropsList, setCropsList] = useState<Listing[]>(buyerListings);
+
+  useEffect(() => {
+    const fetchDBCrops = async () => {
+      try {
+        const dbData = await getCrops();
+        if (dbData && dbData.length > 0) {
+          const mappedCrops: Listing[] = dbData.map((dbCrop: any) => ({
+            id: dbCrop.id,
+            farmer_name: dbCrop.farmer_name || "Verified Farmer",
+            phone: dbCrop.phone || "+91 99999 XXXXX",
+            location_id: (dbCrop.location || "mysuru").toLowerCase(),
+            en: {
+              crop_name: dbCrop.crop_name || dbCrop.crop || "Crop Listing",
+              location: dbCrop.location || "Mysuru",
+              grade: "Grade-A washed"
+            },
+            kn: {
+              crop_name: dbCrop.crop_name || dbCrop.crop || "ಬೆಳೆ ಪಟ್ಟಿ",
+              location: dbCrop.location || "ಮೈಸೂರು",
+              grade: "ಎ-ಗ್ರೇಡ್"
+            },
+            hi: {
+              crop_name: dbCrop.crop_name || dbCrop.crop || "फसल सूची",
+              location: dbCrop.location || "मैसूरु",
+              grade: "A-ग्रेड"
+            },
+            price_per_kg: Number(dbCrop.price_per_kg || dbCrop.price_per_unit || 50),
+            quantity_kg: Number(dbCrop.quantity || 100),
+            icon: "🌱",
+            tag: "Live"
+          }));
+          
+          setCropsList([...mappedCrops, ...buyerListings]);
+        }
+      } catch (err) {
+        console.error("Error loading DB crops:", err);
+      }
+    };
+    fetchDBCrops();
+  }, []);
+
   const uniqueLocations = useMemo(() => {
     const locationsMap = new Map<string, { en: string; kn: string; hi: string }>();
-    buyerListings.forEach(item => {
+    cropsList.forEach(item => {
       if (!locationsMap.has(item.location_id)) {
         locationsMap.set(item.location_id, {
           en: item.en.location.split(",")[0].trim(),
@@ -217,10 +260,10 @@ const Index = () => {
       id,
       label: language === "kn" ? names.kn : language === "hi" ? names.hi : names.en
     }));
-  }, [language]);
+  }, [language, cropsList]);
 
   const filteredCrops = useMemo(() => {
-    let list = [...buyerListings];
+    let list = [...cropsList];
     if (selectedLocations.length > 0) {
       list = list.filter(item => selectedLocations.includes(item.location_id));
     }
@@ -231,7 +274,7 @@ const Index = () => {
         : b.price_per_kg - a.price_per_kg;
     });
     return list;
-  }, [selectedLocations, minQuantity, priceSort]);
+  }, [selectedLocations, minQuantity, priceSort, cropsList]);
 
   const fpoLang: "en" | "kn" = language === "kn" ? "kn" : "en";
   const filteredFpos = useMemo(() => {

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { LanguageToggle } from "@/components/auth/LanguageToggle";
 import { useAuth } from "@/hooks/useAuth";
 import { useLang } from "@/hooks/useLang";
-import { supabase } from "@/integrations/supabase/client";
+import { getProfile } from "@/services/profileService";
 import { Sprout, LogOut } from "lucide-react";
 
 export default function Dashboard() {
@@ -19,8 +19,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) return;
-    supabase.from("profiles").select("full_name, role, district").eq("user_id", user.id).maybeSingle()
-      .then(({ data }) => setProfile(data as any));
+    getProfile(user.id)
+      .then((data) => setProfile(data as any))
+      .catch((err) => console.error("Error loading profile:", err));
   }, [user]);
 
   const handleLogout = async () => {

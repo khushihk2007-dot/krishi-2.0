@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { sendOTP, verifyOTP } from "@/services/authService";
 import { toast } from "sonner";
 
 export type Role = "farmer" | "buyer" | "labourer";
@@ -24,20 +24,17 @@ export function useOtpAuth(role: Role) {
     }
     setBusy(true);
     setPendingMeta(meta);
-    const { error } = await supabase.auth.signInWithOtp({
-      phone: `+91${phone}`,
-      options: {
-        data: meta ? { ...meta, role, phone: `+91${phone}` } : { role, phone: `+91${phone}` },
-      },
-    });
-    setBusy(false);
-    if (error) {
-      toast.error(error.message);
+    try {
+      await sendOTP(phone, role, meta || {});
+      setBusy(false);
+      toast.success("OTP sent");
+      setStep("otp");
+      return true;
+    } catch (error: any) {
+      setBusy(false);
+      toast.error(error.message || "Failed to send OTP");
       return false;
     }
-    toast.success("OTP sent");
-    setStep("otp");
-    return true;
   };
 
   const verify = async (): Promise<{ ok: boolean; userId?: string }> => {
@@ -46,17 +43,19 @@ export function useOtpAuth(role: Role) {
       return { ok: false };
     }
     setBusy(true);
-    const { data, error } = await supabase.auth.verifyOtp({
-      phone: `+91${phone}`,
-      token: otp,
-      type: "sms",
-    });
-    setBusy(false);
-    if (error || !data.user) {
-      toast.error(error?.message ?? "Invalid OTP");
+    try {
+      const data = await verifyOTP(phone, otp);
+      setBusy(false);
+      if (!data.user) {
+        toast.error("Invalid OTP");
+        return { ok: false };
+      }
+      return { ok: true, userId: data.user.id };
+    } catch (error: any) {
+      setBusy(false);
+      toast.error(error.message || "Invalid OTP");
       return { ok: false };
     }
-    return { ok: true, userId: data.user.id };
   };
 
   return {
