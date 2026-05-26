@@ -12,30 +12,25 @@ export const getCrops = async () => {
 
 export const createCrop = async (cropData: {
   user_id: string;
-  farmer_id?: string;
   crop: string;
-  crop_name?: string;
   quantity: number;
   unit?: string;
   price_per_unit?: number;
-  price_per_kg?: number;
-  description?: string;
   notes?: string;
-  images?: string[];
-  location?: string;
-  status?: string;
+  transport_needed?: boolean;
 }) => {
-  const dataToInsert = {
-    ...cropData,
-    farmer_id: cropData.farmer_id || cropData.user_id,
-    crop_name: cropData.crop_name || cropData.crop,
-    price_per_kg: cropData.price_per_kg || cropData.price_per_unit,
-    description: cropData.description || cropData.notes,
-  };
-
   const { data, error } = await supabase
     .from("crop_listings")
-    .insert([dataToInsert])
+    .insert([{
+      user_id: cropData.user_id,
+      crop: cropData.crop,
+      quantity: cropData.quantity,
+      unit: cropData.unit ?? "kg",
+      price_per_unit: cropData.price_per_unit ?? null,
+      notes: cropData.notes ?? null,
+      transport_needed: cropData.transport_needed ?? false,
+      status: "available",
+    }])
     .select()
     .single();
 
@@ -53,4 +48,24 @@ export const updateCropStatus = async (cropId: string, status: string) => {
 
   if (error) throw error;
   return data;
+};
+
+export const getMyListings = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("crop_listings")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data;
+};
+
+export const deleteCropListing = async (cropId: string) => {
+  const { error } = await supabase
+    .from("crop_listings")
+    .delete()
+    .eq("id", cropId);
+
+  if (error) throw error;
 };

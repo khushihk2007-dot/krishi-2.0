@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { createNotification } from "@/services/notificationService";
 
 export const getBuyerOrders = async (buyerId: string) => {
   const { data, error } = await supabase
@@ -25,6 +26,14 @@ export const placeOrder = async (orderData: {
     .single();
 
   if (error) throw error;
+
+  // Notify the buyer that their order was placed
+  await createNotification({
+    user_id: orderData.buyer_id,
+    title: "Order Placed ✅",
+    message: `Your order for ${orderData.quantity} kg has been placed successfully.`,
+  }).catch(console.error);
+
   return data;
 };
 
@@ -59,5 +68,13 @@ export const bookVehicle = async (bookingData: {
     .single();
 
   if (error) throw error;
+
+  // Notify user about the booking
+  await createNotification({
+    user_id: bookingData.user_id,
+    title: "Vehicle Booked 🚛",
+    message: `Your ${bookingData.vehicle.replace(/_/g, " ")} has been booked to ${bookingData.drop_mandi.replace(/_/g, " ")}.`,
+  }).catch(console.error);
+
   return data;
 };

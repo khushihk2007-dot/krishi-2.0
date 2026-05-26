@@ -1,4 +1,4 @@
-import { AlertTriangle, Droplets, Layers3, MapPin, Phone, Thermometer, X } from "lucide-react";
+import { AlertTriangle, Droplets, Layers3, MapPin, Phone, Thermometer, X, Wind, CloudSun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getRegionContent, Language, Region, RegionId, uiLabels } from "@/data/krishiMysuru";
 
@@ -81,10 +81,43 @@ const cropIcons: Record<string, string> = {
 
 const getCropIcon = (crop: string) => cropIcons[crop.toLowerCase()] ?? "🌱";
 
+import { useEffect, useState } from "react";
+import { fetchLiveWeather, WeatherData } from "@/services/weatherService";
+
 export function FieldIntelligencePanel({ region, regionId, language, isExpanded, onToggle }: { region: Region; regionId: RegionId; language: Language; isExpanded?: boolean; onToggle?: () => void }) {
   const labels = uiLabels[language];
   const localized = getRegionContent(region, regionId, language);
   const isAcidic = region.ph < 6;
+
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [isLoadingWeather, setIsLoadingWeather] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const loadWeather = async () => {
+      setIsLoadingWeather(true);
+      try {
+        const data = await fetchLiveWeather(region.lat, region.lng);
+        if (active) {
+          setWeather(data);
+        }
+      } catch (err) {
+        console.error("Failed to load live weather for region:", regionId, err);
+        if (active) {
+          setWeather(null); // Fallback to mock data
+        }
+      } finally {
+        if (active) {
+          setIsLoadingWeather(false);
+        }
+      }
+    };
+
+    loadWeather();
+    return () => {
+      active = false;
+    };
+  }, [region.lat, region.lng, regionId]);
 
   return (
     <aside className={`absolute bottom-0 left-0 right-0 z-[820] overflow-y-auto rounded-t-lg border border-glass-border bg-glass/94 p-4 text-glass-foreground shadow-glass backdrop-blur-panel animate-sheet-in md:bottom-6 md:left-auto md:right-6 md:top-6 md:max-h-[calc(100%-3rem)] md:w-[410px] md:rounded-lg md:p-5 md:animate-panel-in ${isExpanded ? "max-h-[72vh]" : "max-h-[148px]"}`}>
@@ -94,8 +127,16 @@ export function FieldIntelligencePanel({ region, regionId, language, isExpanded,
           <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/12 text-primary">
             <MapPin className="size-5" />
           </div>
-          <div className="min-w-0">
-            <h2 className="truncate font-display text-2xl font-black leading-tight">{localized.name}</h2>
+          <div className="min-w-0 animate-fade-in">
+            <div className="flex items-center gap-2">
+              <h2 className="truncate font-display text-2xl font-black leading-tight">{localized.name}</h2>
+              {weather && !isLoadingWeather && (
+                <span className="flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-black text-success-foreground uppercase tracking-wider animate-pulse shadow-sm">
+                  <span className="size-1.5 rounded-full bg-success-foreground" />
+                  Live
+                </span>
+              )}
+            </div>
             <p className="text-sm font-semibold text-muted-foreground">Field Intelligence</p>
           </div>
         </div>
@@ -131,14 +172,47 @@ export function FieldIntelligencePanel({ region, regionId, language, isExpanded,
           <div className="flex size-11 shrink-0 items-center justify-center rounded-md bg-warning/12 text-warning"><Thermometer className="size-5" /></div>
           <div className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground">{labels.temp}</p>
-            <p className="text-lg font-black">{region.temp}</p>
+            {isLoadingWeather ? (
+              <div className="h-6 w-16 animate-pulse rounded bg-muted-foreground/15 mt-1" />
+            ) : (
+              <p className="text-lg font-black">{weather ? `${weather.temp}°C` : region.temp}</p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-4 rounded-lg border border-glass-border bg-card/74 p-4 shadow-control transition-transform hover:-translate-y-0.5">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-md bg-primary/12 text-primary"><Droplets className="size-5" /></div>
           <div className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground">{labels.hum}</p>
-            <p className="text-lg font-black">{region.hum}</p>
+            {isLoadingWeather ? (
+              <div className="h-6 w-16 animate-pulse rounded bg-muted-foreground/15 mt-1" />
+            ) : (
+              <p className="text-lg font-black">{weather ? `${weather.humidity}%` : region.hum}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <div className="flex items-center gap-4 rounded-lg border border-glass-border bg-card/74 p-4 shadow-control transition-transform hover:-translate-y-0.5">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500"><Wind className="size-5" /></div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground">{language === "kn" ? "ಗಾಳಿಯ ವೇಗ" : language === "hi" ? "हवा की गति" : "Wind Speed"}</p>
+            {isLoadingWeather ? (
+              <div className="h-6 w-16 animate-pulse rounded bg-muted-foreground/15 mt-1" />
+            ) : (
+              <p className="text-lg font-black">{weather ? `${weather.windSpeed} m/s` : "1.8 m/s"}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-4 rounded-lg border border-glass-border bg-card/74 p-4 shadow-control transition-transform hover:-translate-y-0.5">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-500"><CloudSun className="size-5" /></div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground">{language === "kn" ? "ಹವಾಮಾನ" : language === "hi" ? "मौसम" : "Condition"}</p>
+            {isLoadingWeather ? (
+              <div className="h-6 w-16 animate-pulse rounded bg-muted-foreground/15 mt-1" />
+            ) : (
+              <p className="truncate text-sm font-black capitalize">{weather ? weather.description : "Clear Sky"}</p>
+            )}
           </div>
         </div>
       </div>

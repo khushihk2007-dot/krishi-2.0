@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLang } from "@/hooks/useLang";
 import { getLabourJobs, applyForLabourJob, getLabourApplications } from "@/services/labourService";
 import { getLabourerSkills } from "@/services/profileService";
+import { supabase } from "@/integrations/supabase/client";
 import { Search, MapPin, IndianRupee, Clock, LogOut, HardHat, Check } from "lucide-react";
 import { toast } from "sonner";
 
@@ -86,6 +87,18 @@ export default function WorkFeed() {
     };
 
     loadJobsAndApps();
+
+    // Realtime subscription — refresh jobs on any change
+    const channel = supabase
+      .channel("labour_jobs_realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "labour_jobs" },
+        () => { loadJobsAndApps(); },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   // Combine DB jobs and fallback demo jobs

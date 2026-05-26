@@ -14,6 +14,148 @@ export type Database = {
   }
   public: {
     Tables: {
+      buyer_orders: {
+        Row: {
+          id: string
+          buyer_id: string
+          listing_id: string | null
+          quantity: number
+          total_price: number
+          order_status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          buyer_id: string
+          listing_id?: string | null
+          quantity: number
+          total_price: number
+          order_status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          buyer_id?: string
+          listing_id?: string | null
+          quantity?: number
+          total_price?: number
+          order_status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "buyer_orders_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "crop_listings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      labour_jobs: {
+        Row: {
+          id: string
+          farmer_id: string
+          title: string
+          description: string | null
+          wage: number
+          workers_needed: number
+          location: string | null
+          date: string | null
+          status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          farmer_id: string
+          title: string
+          description?: string | null
+          wage: number
+          workers_needed?: number
+          location?: string | null
+          date?: string | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          farmer_id?: string
+          title?: string
+          description?: string | null
+          wage?: number
+          workers_needed?: number
+          location?: string | null
+          date?: string | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      labour_applications: {
+        Row: {
+          id: string
+          job_id: string
+          labourer_id: string
+          status: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          job_id: string
+          labourer_id: string
+          status?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          job_id?: string
+          labourer_id?: string
+          status?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "labour_applications_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "labour_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          id: string
+          user_id: string
+          title: string
+          message: string
+          read: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          title: string
+          message: string
+          read?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          title?: string
+          message?: string
+          read?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
       buyer_details: {
         Row: {
           business_id: string | null
@@ -132,6 +274,7 @@ export type Database = {
         Row: {
           created_at: string
           district: string | null
+          email: string | null
           full_name: string | null
           id: string
           language: string
@@ -143,6 +286,7 @@ export type Database = {
         Insert: {
           created_at?: string
           district?: string | null
+          email?: string | null
           full_name?: string | null
           id?: string
           language?: string
@@ -154,6 +298,7 @@ export type Database = {
         Update: {
           created_at?: string
           district?: string | null
+          email?: string | null
           full_name?: string | null
           id?: string
           language?: string

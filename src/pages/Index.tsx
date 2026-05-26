@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowLeft, Award, Briefcase, Calendar, CheckCircle, ChevronDown, ChevronUp, CloudSun, Globe2, IndianRupee, Leaf, LockKeyhole, LogOut, Map as MapIcon, MapPin, MessageCircle, Mic, Moon, Package, Phone, Search, ShieldCheck, ShoppingCart, Sprout, Star, Sun, Tractor, Truck, User, UserRound, Users, X } from "lucide-react";
+import { fetchLiveWeather } from "@/services/weatherService";
+import { mandiService, MandiRecord } from "@/services/mandiService";
+import { KrishiVoiceAssistant } from "@/components/KrishiVoiceAssistant";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -8,9 +11,12 @@ import { KrishiMap } from "@/components/KrishiMap";
 import { getRegionContent, Language, RegionId, regions } from "@/data/krishiMysuru";
 import { fpos } from "@/data/fpos";
 import { buyerListings, fpoBulkLots, activeTracking, trackingLabels, type Listing } from "@/data/buyerData";
-import { liveMandiPrices, rentalVehicles } from "@/data/marketData";
+import { rentalVehicles } from "@/data/marketData";
 import { availableLabour } from "@/data/labourCrewData";
 import { getCrops } from "@/services/cropService";
+import { sendOTP, verifyOTP, logout as supabaseLogout, loginWithEmail, signupWithEmail } from "@/services/authService";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 type AuthRole = "farmer" | "buyer" | "labourer";
 type Role = "home" | "farmer" | "buyer" | "labourer" | "farmerAuth" | "buyerAuth" | "labourerAuth" | "farmerProfile";
@@ -89,21 +95,120 @@ const labourCopy = {
 } as const;
 
 const loginLabels = {
-  en: { title: "Farmer Login", welcome: "Welcome back, Farmer", subtitle: "Access your smart farm intelligence", phonePlaceholder: "Enter 10-digit mobile number", aadhaarLogin: "Login with Aadhaar Number", btnRequest: "Send OTP", btnVerify: "Verify & Enter", resend: "Resend OTP", newMember: "New Farmer? Create Account", registerTitle: "Create Farmer Account", fullName: "Full Name", district: "District", crop: "Primary Crop", fid: "Link your FID (Farmer ID)", register: "Register & Verify", secureNote: "Your data is secured by 256-bit encryption", profile: "Farmer Profile", dashboard: "Enter Farmer Dashboard", logout: "Logout" },
-  kn: { title: "ರೈತರ ಲಾಗಿನ್", welcome: "ಮತ್ತೆ ಸ್ವಾಗತ, ರೈತರೆ", subtitle: "ನಿಮ್ಮ ಸ್ಮಾರ್ಟ್ ಫಾರ್ಮ್ ಮಾಹಿತಿಯನ್ನು ಪ್ರವೇಶಿಸಿ", phonePlaceholder: "10-ಅಂಕಿಯ ಮೊಬೈಲ್ ಸಂಖ್ಯೆಯನ್ನು ನಮೂದಿಸಿ", aadhaarLogin: "ಆಧಾರ್ ಸಂಖ್ಯೆಯಿಂದ ಲಾಗಿನ್", btnRequest: "OTP ಕಳುಹಿಸಿ", btnVerify: "ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಪ್ರವೇಶಿಸಿ", resend: "OTP ಮತ್ತೆ ಕಳುಹಿಸಿ", newMember: "ಹೊಸ ರೈತರೇ? ಖಾತೆಯನ್ನು ರಚಿಸಿ", registerTitle: "ರೈತರ ಖಾತೆ ರಚಿಸಿ", fullName: "ಪೂರ್ಣ ಹೆಸರು", district: "ಜಿಲ್ಲೆ", crop: "ಮುಖ್ಯ ಬೆಳೆ", fid: "ನಿಮ್ಮ FID (ರೈತ ಐಡಿ) ಲಿಂಕ್ ಮಾಡಿ", register: "ನೋಂದಣಿ ಮಾಡಿ", secureNote: "ನಿಮ್ಮ ಡೇಟಾ ಸುರಕ್ಷಿತವಾಗಿದೆ", profile: "ರೈತರ ಪ್ರೊಫೈಲ್", dashboard: "ರೈತ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ಗೆ ಹೋಗಿ", logout: "ಲಾಗೌಟ್" },
-  hi: { title: "किसान लॉगिन", welcome: "वापसी पर स्वागत है, किसान", subtitle: "अपनी स्मार्ट फार्म जानकारी देखें", phonePlaceholder: "10 अंकों का मोबाइल नंबर डालें", aadhaarLogin: "आधार नंबर से लॉगिन", btnRequest: "OTP भेजें", btnVerify: "सत्यापित करें", resend: "OTP फिर भेजें", newMember: "नए किसान? खाता बनाएँ", registerTitle: "किसान खाता बनाएँ", fullName: "पूरा नाम", district: "जिला", crop: "मुख्य फसल", fid: "अपना FID (Farmer ID) लिंक करें", register: "रजिस्टर करें", secureNote: "आपका डेटा सुरक्षित है", profile: "किसान प्रोफाइल", dashboard: "किसान डैशबोर्ड खोलें", logout: "लॉगआउट" },
+  en: { 
+    title: "Farmer Login", welcome: "Welcome back, Farmer", subtitle: "Access your smart farm intelligence", 
+    phonePlaceholder: "Enter 10-digit mobile number", aadhaarLogin: "Login with Aadhaar Number", 
+    btnRequest: "Send OTP", btnVerify: "Verify & Enter", resend: "Resend OTP", 
+    newMember: "New Farmer? Create Account", registerTitle: "Create Farmer Account", 
+    fullName: "Full Name", district: "District", crop: "Primary Crop", fid: "Link your FID (Farmer ID)", 
+    register: "Register & Verify", secureNote: "Your data is secured by 256-bit encryption", 
+    profile: "Farmer Profile", dashboard: "Enter Farmer Dashboard", logout: "Logout",
+    emailPlaceholder: "Enter email address", passwordPlaceholder: "Enter password",
+    loginWithEmailToggle: "Login with Email instead", loginWithPhoneToggle: "Login with Phone OTP instead",
+    btnLogin: "Login with Email", btnRegisterEmail: "Register with Email"
+  },
+  kn: { 
+    title: "ರೈತರ ಲಾಗಿನ್", welcome: "ಮತ್ತೆ ಸ್ವಾಗತ, ರೈತರೆ", subtitle: "ನಿಮ್ಮ ಸ್ಮಾರ್ಟ್ ಫಾರ್ಮ್ ಮಾಹಿತಿಯನ್ನು ಪ್ರವೇಶಿಸಿ", 
+    phonePlaceholder: "10-ಅಂಕಿಯ ಮೊಬೈಲ್ ಸಂಖ್ಯೆಯನ್ನು ನಮೂದಿಸಿ", aadhaarLogin: "ಆಧಾರ್ ಸಂಖ್ಯೆಯಿಂದ ಲಾಗಿನ್", 
+    btnRequest: "OTP ಕಳುಹಿಸಿ", btnVerify: "ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಪ್ರವೇಶಿಸಿ", resend: "OTP ಮತ್ತೆ ಕಳುಹಿಸಿ", 
+    newMember: "ಹೊಸ ರೈತರೇ? ಖಾತೆಯನ್ನು ರಚಿಸಿ", registerTitle: "ರೈತರ ಖಾತೆ ರಚಿಸಿ", 
+    fullName: "ಪೂರ್ಣ ಹೆಸರು", district: "ಜಿಲ್ಲೆ", crop: "ಮುಖ್ಯ ಬೆಳೆ", fid: "ನಿಮ್ಮ FID (ರೈತ ಐಡಿ) ಲಿಂಕ್ ಮಾಡಿ", 
+    register: "ನೋಂದಣಿ ಮಾಡಿ", secureNote: "ನಿಮ್ಮ ಡೇಟಾ ಸುರಕ್ಷಿತವಾಗಿದೆ", 
+    profile: "ರೈತರ ಪ್ರೊಫೈಲ್", dashboard: "ರೈತ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ಗೆ ಹೋಗಿ", logout: "ಲಾಗೌಟ್",
+    emailPlaceholder: "ಇಮೇಲ್ ವಿಳಾಸವನ್ನು ನಮೂದಿಸಿ", passwordPlaceholder: "ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿ",
+    loginWithEmailToggle: "ಇಮೇಲ್ ಮೂಲಕ ಲಾಗ್ ಇನ್ ಮಾಡಿ", loginWithPhoneToggle: "ಮೊಬೈಲ್ ಒಟಿಪಿ ಮೂಲಕ ಲಾಗ್ ಇನ್ ಮಾಡಿ",
+    btnLogin: "ಇಮೇಲ್ ಮೂಲಕ ಲಾಗಿನ್", btnRegisterEmail: "ಇಮೇಲ್ ಮೂಲಕ ನೋಂದಾಯಿಸಿ"
+  },
+  hi: { 
+    title: "किसान लॉगिन", welcome: "वापसी पर स्वागत है, किसान", subtitle: "अपनी स्मार्ट फार्म जानकारी देखें", 
+    phonePlaceholder: "10 अंकों का मोबाइल नंबर डालें", aadhaarLogin: "आधार नंबर से लॉगिन", 
+    btnRequest: "OTP भेजें", btnVerify: "सत्यापित करें", resend: "OTP फिर भेजें", 
+    newMember: "नए किसान? खाता बनाएँ", registerTitle: "किसान खाता बनाएँ", 
+    fullName: "पूरा नाम", district: "जिला", crop: "मुख्य फसल", fid: "अपना FID (Farmer ID) लिंक करें", 
+    register: "रजिस्टर करें", secureNote: "आपका डेटा सुरक्षित है", 
+    profile: "किसान प्रोफाइल", dashboard: "किसान डैशबोर्ड खोलें", logout: "लॉगआउट",
+    emailPlaceholder: "ईमेल पता दर्ज करें", passwordPlaceholder: "पासवर्ड दर्ज करें",
+    loginWithEmailToggle: "ईमेल से लॉगिन करें", loginWithPhoneToggle: "मोबाइल ओटीपी से लॉगिन करें",
+    btnLogin: "ईमेल से लॉगिन", btnRegisterEmail: "ईमेल से रजिस्टर करें"
+  },
 } as const;
 
 const buyerLoginLabels = {
-  en: { title: "Buyer Login", welcome: "Welcome back, Buyer", subtitle: "Source crops directly from verified farmers", phonePlaceholder: "Enter 10-digit mobile number", aadhaarLogin: "Login with GSTIN", btnRequest: "Send OTP", btnVerify: "Verify & Enter", resend: "Resend OTP", newMember: "New Buyer? Create Account", registerTitle: "Create Buyer Account", fullName: "Full Name", district: "District", company: "Company / Business Name", gstin: "GSTIN (optional)", register: "Register & Verify", secureNote: "Your data is secured by 256-bit encryption", profile: "Buyer Profile", dashboard: "Enter Buyer Dashboard", logout: "Logout" },
-  kn: { title: "ಖರೀದಿದಾರರ ಲಾಗಿನ್", welcome: "ಮತ್ತೆ ಸ್ವಾಗತ, ಖರೀದಿದಾರರೆ", subtitle: "ಪರಿಶೀಲಿತ ರೈತರಿಂದ ನೇರವಾಗಿ ಬೆಳೆಗಳನ್ನು ಖರೀದಿಸಿ", phonePlaceholder: "10-ಅಂಕಿಯ ಮೊಬೈಲ್ ಸಂಖ್ಯೆ ನಮೂದಿಸಿ", aadhaarLogin: "GSTIN ಯಿಂದ ಲಾಗಿನ್", btnRequest: "OTP ಕಳುಹಿಸಿ", btnVerify: "ಪರಿಶೀಲಿಸಿ", resend: "OTP ಮತ್ತೆ ಕಳುಹಿಸಿ", newMember: "ಹೊಸ ಖರೀದಿದಾರರೇ? ಖಾತೆ ರಚಿಸಿ", registerTitle: "ಖರೀದಿದಾರ ಖಾತೆ ರಚಿಸಿ", fullName: "ಪೂರ್ಣ ಹೆಸರು", district: "ಜಿಲ್ಲೆ", company: "ಕಂಪನಿ / ವ್ಯವಹಾರ ಹೆಸರು", gstin: "GSTIN (ಐಚ್ಛಿಕ)", register: "ನೋಂದಣಿ ಮಾಡಿ", secureNote: "ನಿಮ್ಮ ಡೇಟಾ ಸುರಕ್ಷಿತ", profile: "ಖರೀದಿದಾರ ಪ್ರೊಫೈಲ್", dashboard: "ಖರೀದಿದಾರ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ಗೆ ಹೋಗಿ", logout: "ಲಾಗೌಟ್" },
-  hi: { title: "खरीदार लॉगिन", welcome: "वापसी पर स्वागत है, खरीदार", subtitle: "सत्यापित किसानों से सीधे फसल खरीदें", phonePlaceholder: "10 अंकों का मोबाइल नंबर डालें", aadhaarLogin: "GSTIN से लॉगिन", btnRequest: "OTP भेजें", btnVerify: "सत्यापित करें", resend: "OTP फिर भेजें", newMember: "नए खरीदार? खाता बनाएँ", registerTitle: "खरीदार खाता बनाएँ", fullName: "पूरा नाम", district: "जिला", company: "कंपनी / व्यवसाय नाम", gstin: "GSTIN (वैकल्पिक)", register: "रजिस्टर करें", secureNote: "आपका डेटा सुरक्षित है", profile: "खरीदार प्रोफाइल", dashboard: "खरीदार डैशबोर्ड खोलें", logout: "लॉगआउट" },
+  en: { 
+    title: "Buyer Login", welcome: "Welcome back, Buyer", subtitle: "Source crops directly from verified farmers", 
+    phonePlaceholder: "Enter 10-digit mobile number", aadhaarLogin: "Login with GSTIN", 
+    btnRequest: "Send OTP", btnVerify: "Verify & Enter", resend: "Resend OTP", 
+    newMember: "New Buyer? Create Account", registerTitle: "Create Buyer Account", 
+    fullName: "Full Name", district: "District", company: "Company / Business Name", 
+    gstin: "GSTIN (optional)", register: "Register & Verify", secureNote: "Your data is secured by 256-bit encryption", 
+    profile: "Buyer Profile", dashboard: "Enter Buyer Dashboard", logout: "Logout",
+    emailPlaceholder: "Enter email address", passwordPlaceholder: "Enter password",
+    loginWithEmailToggle: "Login with Email instead", loginWithPhoneToggle: "Login with Phone OTP instead",
+    btnLogin: "Login with Email", btnRegisterEmail: "Register with Email"
+  },
+  kn: { 
+    title: "ಖರೀದಿದಾರರ ಲಾಗಿನ್", welcome: "ಮತ್ತೆ ಸ್ವಾಗತ, ಖರೀದಿದಾರರೆ", subtitle: "ಪರಿಶೀಲಿತ ರೈತರಿಂದ ನೇರವಾಗಿ ಬೆಳೆಗಳನ್ನು ಖರೀದಿಸಿ", 
+    phonePlaceholder: "10-ಅಂಕಿಯ ಮೊಬೈಲ್ ಸಂಖ್ಯೆ ನಮೂದಿಸಿ", aadhaarLogin: "GSTIN ಯಿಂದ ಲಾಗಿನ್", 
+    btnRequest: "OTP ಕಳುಹಿಸಿ", btnVerify: "ಪರಿಶೀಲಿಸಿ", resend: "OTP ಮತ್ತೆ ಕಳುಹಿಸಿ", 
+    newMember: "ಹೊಸ ಖರೀದಿದಾರರೇ? ಖಾತೆ ರಚಿಸಿ", registerTitle: "ಖರೀದಿದಾರ ಖಾತೆ ರಚಿಸಿ", 
+    fullName: "ಪೂರ್ಣ ಹೆಸರು", district: "ಜಿಲ್ಲೆ", company: "ಕಂಪನಿ / ವ್ಯವಹಾರ ಹೆಸರು", 
+    gstin: "GSTIN (ಐಚ್ಛಿಕ)", register: "ನೋಂದಣಿ ಮಾಡಿ", secureNote: "ನಿಮ್ಮ ಡೇಟಾ ಸುರಕ್ಷಿತ", 
+    profile: "ಖರೀದಿದಾರ ಪ್ರೊಫೈಲ್", dashboard: "ಖರೀದಿದಾರ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ಗೆ ಹೋಗಿ", logout: "ಲಾಗೌಟ್",
+    emailPlaceholder: "ಇಮೇಲ್ ವಿಳಾಸವನ್ನು ನಮೂದಿಸಿ", passwordPlaceholder: "ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿ",
+    loginWithEmailToggle: "ಇಮೇಲ್ ಮೂಲಕ ಲಾಗ್ ಇನ್ ಮಾಡಿ", loginWithPhoneToggle: "ಮೊಬೈಲ್ ಒಟಿಪಿ ಮೂಲಕ ಲಾಗ್ ಇನ್ ಮಾಡಿ",
+    btnLogin: "ಇಮೇಲ್ ಮೂಲಕ ಲಾಗಿನ್", btnRegisterEmail: "ಇಮೇಲ್ ಮೂಲಕ ನೋಂದಾಯಿಸಿ"
+  },
+  hi: { 
+    title: "खरीदार लॉगिन", welcome: "वापसी पर स्वागत है, खरीदार", subtitle: "सत्यापित किसानों से सीधे फसल खरीदें", 
+    phonePlaceholder: "10 अंकों का मोबाइल नंबर डालें", aadhaarLogin: "GSTIN से लॉगिन", 
+    btnRequest: "OTP भेजें", btnVerify: "सत्यापित करें", resend: "OTP फिर भेजें", 
+    newMember: "नए खरीदार? खाता बनाएँ", registerTitle: "खरीदार खाता बनाएँ", 
+    fullName: "पूरा नाम", district: "जिला", company: "कंपनी / व्यवसाय नाम", 
+    gstin: "GSTIN (वैकल्पिक)", register: "रजिस्टर करें", secureNote: "आपका डेटा सुरक्षित है", 
+    profile: "खरीदार प्रोफाइल", dashboard: "खरीदार डैशबोर्ड खोलें", logout: "लॉगआउट",
+    emailPlaceholder: "ईमेल पता दर्ज करें", passwordPlaceholder: "पासवर्ड दर्ज करें",
+    loginWithEmailToggle: "ईमेल से लॉगिन करें", loginWithPhoneToggle: "मोबाइल ओटीपी से लॉगिन करें",
+    btnLogin: "ईमेल से लॉगिन", btnRegisterEmail: "ईमेल से रजिस्टर करें"
+  },
 } as const;
 
 const labourerLoginLabels = {
-  en: { title: "Labourer Login", welcome: "Welcome back, Worker", subtitle: "Find verified daily wage work near you", phonePlaceholder: "Enter 10-digit mobile number", aadhaarLogin: "Login with Aadhaar Number", btnRequest: "Send OTP", btnVerify: "Verify & Enter", resend: "Resend OTP", newMember: "New Worker? Create Account", registerTitle: "Create Worker Account", fullName: "Full Name", district: "District", skills: "Skills (Harvesting, Sowing, Driver…)", experience: "Years of experience", register: "Register & Verify", secureNote: "Your data is secured by 256-bit encryption", profile: "Worker Profile", dashboard: "Find Nearby Work", logout: "Logout" },
-  kn: { title: "ಕಾರ್ಮಿಕರ ಲಾಗಿನ್", welcome: "ಮತ್ತೆ ಸ್ವಾಗತ", subtitle: "ನಿಮ್ಮ ಹತ್ತಿರದ ಪರಿಶೀಲಿತ ದಿನಗೂಲಿ ಕೆಲಸ ಹುಡುಕಿ", phonePlaceholder: "10-ಅಂಕಿಯ ಮೊಬೈಲ್ ಸಂಖ್ಯೆ ನಮೂದಿಸಿ", aadhaarLogin: "ಆಧಾರ್ ಸಂಖ್ಯೆಯಿಂದ ಲಾಗಿನ್", btnRequest: "OTP ಕಳುಹಿಸಿ", btnVerify: "ಪರಿಶೀಲಿಸಿ", resend: "OTP ಮತ್ತೆ ಕಳುಹಿಸಿ", newMember: "ಹೊಸ ಕಾರ್ಮಿಕರೇ? ಖಾತೆ ರಚಿಸಿ", registerTitle: "ಕಾರ್ಮಿಕ ಖಾತೆ ರಚಿಸಿ", fullName: "ಪೂರ್ಣ ಹೆಸರು", district: "ಜಿಲ್ಲೆ", skills: "ಕೌಶಲ್ಯಗಳು (ಕೊಯ್ಲು, ಬಿತ್ತನೆ…)", experience: "ಅನುಭವದ ವರ್ಷಗಳು", register: "ನೋಂದಣಿ ಮಾಡಿ", secureNote: "ನಿಮ್ಮ ಡೇಟಾ ಸುರಕ್ಷಿತ", profile: "ಕಾರ್ಮಿಕ ಪ್ರೊಫೈಲ್", dashboard: "ಹತ್ತಿರದ ಕೆಲಸ ಹುಡುಕಿ", logout: "ಲಾಗೌಟ್" },
-  hi: { title: "मजदूर लॉगिन", welcome: "वापसी पर स्वागत है", subtitle: "अपने पास सत्यापित दैनिक काम खोजें", phonePlaceholder: "10 अंकों का मोबाइल नंबर डालें", aadhaarLogin: "आधार नंबर से लॉगिन", btnRequest: "OTP भेजें", btnVerify: "सत्यापित करें", resend: "OTP फिर भेजें", newMember: "नए मजदूर? खाता बनाएँ", registerTitle: "मजदूर खाता बनाएँ", fullName: "पूरा नाम", district: "जिला", skills: "कौशल (कटाई, बुवाई, ड्राइवर…)", experience: "अनुभव (वर्ष)", register: "रजिस्टर करें", secureNote: "आपका डेटा सुरक्षित है", profile: "मजदूर प्रोफाइल", dashboard: "नज़दीकी काम खोजें", logout: "लॉगआउट" },
+  en: { 
+    title: "Labourer Login", welcome: "Welcome back, Worker", subtitle: "Find verified daily wage work near you", 
+    phonePlaceholder: "Enter 10-digit mobile number", aadhaarLogin: "Login with Aadhaar Number", 
+    btnRequest: "Send OTP", btnVerify: "Verify & Enter", resend: "Resend OTP", 
+    newMember: "New Worker? Create Account", registerTitle: "Create Worker Account", 
+    fullName: "Full Name", district: "District", skills: "Skills (Harvesting, Sowing, Driver…)", 
+    experience: "Years of experience", register: "Register & Verify", secureNote: "Your data is secured by 256-bit encryption", 
+    profile: "Worker Profile", dashboard: "Find Nearby Work", logout: "Logout",
+    emailPlaceholder: "Enter email address", passwordPlaceholder: "Enter password",
+    loginWithEmailToggle: "Login with Email instead", loginWithPhoneToggle: "Login with Phone OTP instead",
+    btnLogin: "Login with Email", btnRegisterEmail: "Register with Email"
+  },
+  kn: { 
+    title: "ಕಾರ್ಮಿಕರ ಲಾಗಿನ್", welcome: "ಮತ್ತೆ ಸ್ವಾಗತ", subtitle: "ನಿಮ್ಮ ಹತ್ತಿರದ ಪರಿಶೀಲಿತ ದಿನಗೂಲಿ ಕೆಲಸ ಹುಡುಕಿ", 
+    phonePlaceholder: "10-ಅಂಕಿಯ ಮೊಬೈಲ್ ಸಂಖ್ಯೆ ನಮೂದಿಸಿ", aadhaarLogin: "ಆಧಾರ್ ಸಂಖ್ಯೆಯಿಂದ ಲಾಗಿನ್", 
+    btnRequest: "OTP ಕಳುಹಿಸಿ", btnVerify: "ಪರಿಶೀಲಿಸಿ", resend: "OTP ಮತ್ತೆ ಕಳುಹಿಸಿ", 
+    newMember: "ಹೊಸ ಕಾರ್ಮಿಕರೇ? ಖಾತೆ ರಚಿಸಿ", registerTitle: "ಕಾರ್ಮಿಕ ಖಾತೆ ರಚಿಸಿ", 
+    fullName: "ಪೂರ್ಣ ಹೆಸರು", district: "ಜಿಲ್ಲೆ", skills: "ಕೌಶಲ್ಯಗಳು (ಕೊಯ್ಲು, ಬಿತ್ತನೆ…)", 
+    experience: "ಅನುಭವದ ವರ್ಷಗಳು", register: "ನೋಂದಣಿ ಮಾಡಿ", secureNote: "ನಿಮ್ಮ ಡೇಟಾ ಸುರಕ್ಷಿತ", 
+    profile: "ಕಾರ್ಮಿಕ ಪ್ರೊಫೈಲ್", dashboard: "ಹತ್ತಿರದ ಕೆಲಸ ಹುಡುಕಿ", logout: "ಲಾಗೌಟ್",
+    emailPlaceholder: "ಇಮೇಲ್ ವಿಳಾಸವನ್ನು ನಮೂದಿಸಿ", passwordPlaceholder: "ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿ",
+    loginWithEmailToggle: "ಇಮೇಲ್ ಮೂಲಕ ಲಾಗ್ ಇನ್ ಮಾಡಿ", loginWithPhoneToggle: "ಮೊಬೈಲ್ ಒಟಿಪಿ ಮೂಲಕ ಲಾಗ್ ಇನ್ ಮಾಡಿ",
+    btnLogin: "ಇಮೇಲ್ ಮೂಲಕ ಲಾಗಿನ್", btnRegisterEmail: "ಇಮೇಲ್ ಮೂಲಕ ನೋಂದಾಯಿಸಿ"
+  },
+  hi: { 
+    title: "मजदूर लॉगिन", welcome: "वापसी पर स्वागत है", subtitle: "अपने पास सत्यापित दैनिक काम खोजें", 
+    phonePlaceholder: "10 अंकों का मोबाइल नंबर डालें", aadhaarLogin: "आधार नंबर से लॉगिन", 
+    btnRequest: "OTP भेजें", btnVerify: "सत्यापित करें", resend: "OTP फिर भेजें", 
+    newMember: "नए मजदूर? खाता बनाएँ", registerTitle: "मजदूर खाता बनाएँ", 
+    fullName: "पूरा नाम", district: "जिला", skills: "कौशल (कटाई, बुवाई, ड्राइवर…)", 
+    experience: "अनुभव (वर्ष)", register: "रजिस्टर करें", secureNote: "आपका डेटा सुरक्षित है", 
+    profile: "मजदूर प्रोफाइल", dashboard: "नज़दीकी काम खोजें", logout: "लॉगआउट",
+    emailPlaceholder: "ईमेल पता दर्ज करें", passwordPlaceholder: "पासवर्ड दर्ज करें",
+    loginWithEmailToggle: "ईमेल से लॉगिन करें", loginWithPhoneToggle: "मोबाइल ओटीपी से लॉगिन करें",
+    btnLogin: "ईमेल से लॉगिन", btnRegisterEmail: "ईमेल से रजिस्टर करें"
+  },
 } as const;
 
 const profileLabels = {
@@ -178,10 +283,14 @@ const Index = () => {
   const [otp, setOtp] = useState(Array(6).fill(""));
   const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
   const [resendTimer, setResendTimer] = useState(60);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authMethod, setAuthMethod] = useState<"phone" | "email">("phone");
   const [farmerProfile, setFarmerProfile] = useState({ name: "", district: "Mysuru", crop: "Tomato", fid: "" });
   const [buyerProfile, setBuyerProfile] = useState({ name: "", district: "Mysuru", company: "", gstin: "" });
   const [labourerProfile, setLabourerProfile] = useState({ name: "", district: "Mysuru", skills: "", experience: "" });
   const [authRole, setAuthRole] = useState<AuthRole>("farmer");
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [fpoSearch, setFpoSearch] = useState("");
   const [isTrackingExpanded, setIsTrackingExpanded] = useState(false);
   const [priceUnit, setPriceUnit] = useState<"qtl" | "kg">("qtl");
@@ -190,6 +299,26 @@ const Index = () => {
   const [labourCrewFilter, setLabourCrewFilter] = useState<string>("all");
   const [crewEstimatedDays, setCrewEstimatedDays] = useState<Record<string, number>>({});
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  const [isVoiceAssistantOpen, setIsVoiceAssistantOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [weatherAlerts, setWeatherAlerts] = useState<any[]>([]);
+  const [isLoadingWeatherAlerts, setIsLoadingWeatherAlerts] = useState(false);
+  const [homeMandiRecords, setHomeMandiRecords] = useState<MandiRecord[]>([]);
+  const [isLoadingHomeMandi, setIsLoadingHomeMandi] = useState(false);
+  const [homeMandiError, setHomeMandiError] = useState<string | null>(null);
+  const [lastUpdatedMandi, setLastUpdatedMandi] = useState<Date | null>(null);
+  const [timeTicker, setTimeTicker] = useState(0);
+  const [mandiRecords, setMandiRecords] = useState<MandiRecord[]>([]);
+  const [isLoadingMandi, setIsLoadingMandi] = useState(false);
+  const [mandiError, setMandiError] = useState<string | null>(null);
+  const [mandiSearch, setMandiSearch] = useState("");
+  const [mandiStateFilter, setMandiStateFilter] = useState("Karnataka");
+  const [mandiDistrictFilter, setMandiDistrictFilter] = useState("all");
+  const [mandiMarketFilter, setMandiMarketFilter] = useState("all");
+  const [selectedChartCrop, setSelectedChartCrop] = useState<{ commodity: string; market: string } | null>(null);
+  const [cropHistoryData, setCropHistoryData] = useState<{ date: string; price: number }[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [minQuantity, setMinQuantity] = useState<number>(0);
   const [priceSort, setPriceSort] = useState<"asc" | "desc">("asc");
   const [fpoTons, setFpoTons] = useState<Record<string, number>>({
@@ -212,30 +341,29 @@ const Index = () => {
         if (dbData && dbData.length > 0) {
           const mappedCrops: Listing[] = dbData.map((dbCrop: any) => ({
             id: dbCrop.id,
-            farmer_name: dbCrop.farmer_name || "Verified Farmer",
-            phone: dbCrop.phone || "+91 99999 XXXXX",
-            location_id: (dbCrop.location || "mysuru").toLowerCase(),
+            farmer_name: "Verified Farmer",
+            phone: "+91 99999 XXXXX",
+            location_id: "mysuru",
             en: {
-              crop_name: dbCrop.crop_name || dbCrop.crop || "Crop Listing",
-              location: dbCrop.location || "Mysuru",
-              grade: "Grade-A washed"
+              crop_name: dbCrop.crop || "Crop Listing",
+              location: "Mysuru",
+              grade: "Grade-A",
             },
             kn: {
-              crop_name: dbCrop.crop_name || dbCrop.crop || "ಬೆಳೆ ಪಟ್ಟಿ",
-              location: dbCrop.location || "ಮೈಸೂರು",
-              grade: "ಎ-ಗ್ರೇಡ್"
+              crop_name: dbCrop.crop || "ಬೆಳೆ ಪಟ್ಟಿ",
+              location: "ಮೈಸೂರು",
+              grade: "ಎ-ಗ್ರೇಡ್",
             },
             hi: {
-              crop_name: dbCrop.crop_name || dbCrop.crop || "फसल सूची",
-              location: dbCrop.location || "मैसूरु",
-              grade: "A-ग्रेड"
+              crop_name: dbCrop.crop || "फसल सूची",
+              location: "मैसूरु",
+              grade: "A-ग्रेड",
             },
-            price_per_kg: Number(dbCrop.price_per_kg || dbCrop.price_per_unit || 50),
-            quantity_kg: Number(dbCrop.quantity || 100),
+            price_per_kg: Number(dbCrop.price_per_unit ?? 50),
+            quantity_kg: Number(dbCrop.quantity ?? 100),
             icon: "🌱",
-            tag: "Live"
+            tag: "Live",
           }));
-          
           setCropsList([...mappedCrops, ...buyerListings]);
         }
       } catch (err) {
@@ -243,6 +371,18 @@ const Index = () => {
       }
     };
     fetchDBCrops();
+
+    // Realtime subscription — refresh crops on any change
+    const channel = supabase
+      .channel("crop_listings_realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "crop_listings" },
+        () => { fetchDBCrops(); },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   const uniqueLocations = useMemo(() => {
@@ -269,8 +409,8 @@ const Index = () => {
     }
     list = list.filter(item => item.quantity_kg >= minQuantity);
     list.sort((a, b) => {
-      return priceSort === "asc" 
-        ? a.price_per_kg - b.price_per_kg 
+      return priceSort === "asc"
+        ? a.price_per_kg - b.price_per_kg
         : b.price_per_kg - a.price_per_kg;
     });
     return list;
@@ -287,7 +427,7 @@ const Index = () => {
   const t = copy[language];
   const labourLabels = labourCopy[language];
   const trackingLabel = trackingLabels[language] || trackingLabels.en;
-  
+
   const profileText = profileLabels[language];
 
   const login = (authRole === "buyer" ? buyerLoginLabels : authRole === "labourer" ? labourerLoginLabels : loginLabels)[language];
@@ -296,14 +436,275 @@ const Index = () => {
     authRole === "farmer"
       ? [{ key: "name", label: login.fullName, profile: farmerProfile, setter: setFarmerProfile as any }, { key: "crop", label: (login as any).crop, profile: farmerProfile, setter: setFarmerProfile as any }, { key: "fid", label: (login as any).fid, profile: farmerProfile, setter: setFarmerProfile as any }]
       : authRole === "buyer"
-      ? [{ key: "name", label: login.fullName, profile: buyerProfile, setter: setBuyerProfile as any }, { key: "company", label: (login as any).company, profile: buyerProfile, setter: setBuyerProfile as any }, { key: "gstin", label: (login as any).gstin, profile: buyerProfile, setter: setBuyerProfile as any }]
-      : [{ key: "name", label: login.fullName, profile: labourerProfile, setter: setLabourerProfile as any }, { key: "skills", label: (login as any).skills, profile: labourerProfile, setter: setLabourerProfile as any }, { key: "experience", label: (login as any).experience, profile: labourerProfile, setter: setLabourerProfile as any }];
+        ? [{ key: "name", label: login.fullName, profile: buyerProfile, setter: setBuyerProfile as any }, { key: "company", label: (login as any).company, profile: buyerProfile, setter: setBuyerProfile as any }, { key: "gstin", label: (login as any).gstin, profile: buyerProfile, setter: setBuyerProfile as any }]
+        : [{ key: "name", label: login.fullName, profile: labourerProfile, setter: setLabourerProfile as any }, { key: "skills", label: (login as any).skills, profile: labourerProfile, setter: setLabourerProfile as any }, { key: "experience", label: (login as any).experience, profile: labourerProfile, setter: setLabourerProfile as any }];
   const authDistrict = authRole === "farmer" ? farmerProfile.district : authRole === "buyer" ? buyerProfile.district : labourerProfile.district;
   const setAuthDistrict = (d: string) => {
     if (authRole === "farmer") setFarmerProfile((p) => ({ ...p, district: d }));
     else if (authRole === "buyer") setBuyerProfile((p) => ({ ...p, district: d }));
     else setLabourerProfile((p) => ({ ...p, district: d }));
   };
+
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
+
+  useEffect(() => {
+    const restoreSession = async () => {
+      setIsSessionLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setCurrentUser(session.user);
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("user_id", session.user.id)
+            .maybeSingle();
+
+          if (profile) {
+            const userRole = profile.role as AuthRole;
+            setAuthRole(userRole);
+            setPhoneNumber(profile.phone?.replace("+91", "") || "");
+
+            if (userRole === "farmer") {
+              setFarmerProfile(p => ({ ...p, name: profile.full_name || "", district: profile.district || "Mysuru" }));
+              const { data: farmer } = await supabase.from("farmer_details").select("*").eq("user_id", session.user.id).maybeSingle();
+              if (farmer) setFarmerProfile(p => ({ ...p, crop: farmer.primary_crop || "", fid: farmer.farmer_id || "" }));
+              setRole("farmer");
+            } else if (userRole === "buyer") {
+              setBuyerProfile(p => ({ ...p, name: profile.full_name || "", district: profile.district || "Mysuru" }));
+              const { data: buyer } = await supabase.from("buyer_details").select("*").eq("user_id", session.user.id).maybeSingle();
+              if (buyer) setBuyerProfile(p => ({ ...p, company: buyer.business_id || "" }));
+              setRole("buyer");
+            } else if (userRole === "labourer") {
+              setLabourerProfile(p => ({ ...p, name: profile.full_name || "", district: profile.district || "Mysuru" }));
+              const { data: skills } = await supabase.from("labourer_skills").select("skill").eq("user_id", session.user.id);
+              if (skills) setLabourerProfile(p => ({ ...p, skills: skills.map((s: any) => s.skill).join(", ") }));
+              setRole("labourer");
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Session restoration failed:", e);
+      } finally {
+        setIsSessionLoading(false);
+      }
+    };
+    restoreSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setCurrentUser(session.user);
+      } else {
+        setCurrentUser(null);
+      }
+      if (event === "SIGNED_OUT") {
+        setRole("home");
+        setPhoneNumber("");
+        setOtp(Array(6).fill(""));
+        setAuthStep("phone");
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Weather-based alerts logic
+  useEffect(() => {
+    const loadHomeWeatherAlerts = async () => {
+      setIsLoadingWeatherAlerts(true);
+      try {
+        const region = regions[selectedId];
+        let data: any = null;
+        
+        try {
+          data = await fetchLiveWeather(region.lat, region.lng);
+        } catch (e) {
+          console.warn("Home weather fetch failed, falling back to mock stats:", e);
+        }
+
+        // Parse mock stats from the selected region if data is null/failed
+        if (!data) {
+          const tempRange = region.temp.split("-");
+          const avgTemp = tempRange.length === 2 ? Math.round((parseFloat(tempRange[0]) + parseFloat(tempRange[1])) / 2) : 28;
+          const humidityVal = parseFloat(region.hum.replace("%", "")) || 65;
+          const isKodaguOrSakleshpur = selectedId === "kodagu" || selectedId === "sakleshpur";
+          
+          data = {
+            temp: avgTemp,
+            humidity: humidityVal,
+            windSpeed: isKodaguOrSakleshpur ? 1.5 : 4.5,
+            condition: isKodaguOrSakleshpur ? "Rain" : "Clear",
+            description: isKodaguOrSakleshpur ? "moderate rain" : "clear sky",
+            icon: "01d",
+            name: region.en.name
+          };
+        }
+
+        const alerts: any[] = [];
+        const isKn = language === "kn";
+        const isHi = language === "hi";
+
+        // 1. Rain Alerts
+        const rainCond = data.condition.toLowerCase();
+        const rainDesc = data.description.toLowerCase();
+        if (rainCond.includes("rain") || rainCond.includes("drizzle") || rainCond.includes("thunderstorm") || rainDesc.includes("rain")) {
+          const isHeavy = rainCond.includes("thunderstorm") || rainDesc.includes("heavy") || rainDesc.includes("extreme");
+          alerts.push({
+            id: "rain",
+            type: "rain",
+            icon: "🌧️",
+            title: isKn ? "ಮಳೆ ಎಚ್ಚರಿಕೆ" : isHi ? "बारिश की चेतावनी" : "Rain Alert",
+            message: isKn 
+              ? (isHeavy ? "ಭಾರೀ ಮಳೆ ಮತ್ತು ಸಿಡಿಲು ನಿರೀಕ್ಷಿಸಲಾಗಿದೆ. ಸುರಕ್ಷಿತವಾಗಿರಿ." : "ಮಳೆ ಪತ್ತೆಯಾಗಿದೆ. ಹೊಲದಲ್ಲಿ ನೀರು ನಿಲ್ಲದಂತೆ ನೋಡಿಕೊಳ್ಳಿ.")
+              : isHi
+              ? (isHeavy ? "भारी बारिश and आंधी की संभावना। घर के अंदर रहें।" : "बारिश दर्ज की गई। खेतों में जल निकासी सुनिश्चित करें।")
+              : (isHeavy ? "Heavy rain and thunderstorms expected today. Stay indoors." : "Rain detected. Ensure proper drainage in fields."),
+            severity: isHeavy ? "High" : "Medium",
+          });
+        } else if (data.humidity > 85) {
+          alerts.push({
+            id: "rain",
+            type: "rain",
+            icon: "☁️",
+            title: isKn ? "ಮಳೆ ಎಚ್ಚರಿಕೆ" : isHi ? "बारिश की चेतावनी" : "Rain Alert",
+            message: isKn 
+              ? "ಹೆಚ್ಚಿನ ತೇವಾಂಶ ಮತ್ತು ಮೋಡ ಕವಿದ ವಾತಾವರಣವಿದೆ. ಮಳೆಯ ಸಾಧ್ಯತೆ ಇದೆ."
+              : isHi
+              ? "उच्च आर्द्रता और बादलों से घिरा मौसम। बारिश की संभावना है।"
+              : "High humidity and overcast skies. Light rain expected today.",
+            severity: "Low",
+          });
+        }
+
+        // 2. Wind Alerts
+        if (data.windSpeed > 3) {
+          let message = "";
+          let severity: "Low" | "Medium" | "High" = "Low";
+          if (data.windSpeed > 8) {
+            severity = "High";
+            message = isKn
+              ? `ಅತಿ ಬಲವಾದ ಗಾಳಿ ಪತ್ತೆಯಾಗಿದೆ (${data.windSpeed} m/s). ತಾತ್ಕಾಲಿಕ ರಚನೆಗಳನ್ನು ಭದ್ರಪಡಿಸಿ.`
+              : isHi
+              ? `तेज हवाएं दर्ज की गईं (${data.windSpeed} m/s)। अस्थायी संरचनाओं को सुरक्षित करें।`
+              : `Gale-force winds detected (${data.windSpeed} m/s). Secure temporary structures.`;
+          } else if (data.windSpeed > 5) {
+            severity = "Medium";
+            message = isKn
+              ? "ಬಲವಾದ ಗಾಳಿ ಬೀಸುತ್ತಿದೆ. ಕೀಟನಾಶಕ ಸಿಂಪಡಿಸುವುದನ್ನು ತಪ್ಪಿಸಿ."
+              : isHi
+              ? "तेज हवाएं चल रही हैं। कीटनाशक छिड़काव से बचें।"
+              : "Strong winds detected. Avoid spraying pesticides.";
+          } else {
+            severity = "Low";
+            message = isKn
+              ? "ಮಧ್ಯಮ ಗಾಳಿ ಬೀಸುತ್ತಿದೆ. ಎಚ್ಚರಿಕೆಯಿಂದ ಸಿಂಪಡಿಸಿ."
+              : isHi
+              ? "मध्यम हवा। सावधानी के साथ छिड़काव करें।"
+              : "Moderate breeze. Spray with extra care.";
+          }
+          alerts.push({
+            id: "wind",
+            type: "wind",
+            icon: "💨",
+            title: isKn ? "ಗಾಳಿ ಎಚ್ಚರಿಕೆ" : isHi ? "हवा की चेतावनी" : "Wind Alert",
+            message,
+            severity,
+          });
+        }
+
+        // 3. Pest Outbreak Warnings
+        if (data.humidity > 70) {
+          let message = "";
+          let severity: "Low" | "Medium" | "High" = "Low";
+          if (data.humidity > 85) {
+            severity = "High";
+            message = isKn
+              ? "ಅತಿಯಾದ ತೇವಾಂಶ. ಶಿಲೀಂಧ್ರ ರೋಗ ಮತ್ತು ಕೀಟಗಳ ಹರಡುವಿಕೆಯ ಹೆಚ್ಚಿನ ಅಪಾಯವಿದೆ."
+              : isHi
+              ? "अत्यधिक उच्च आर्द्रता। कवक रोग और कीट फैलने का उच्च जोखिम।"
+              : "Extremely high humidity. High risk of fungal disease and pest spread.";
+          } else {
+            severity = "Medium";
+            message = isKn
+              ? "ಹೆಚ್ಚಿನ ತೇವಾಂಶವು ಕೀಟಗಳ ಚಟುವಟಿಕೆಯನ್ನು ಹೆಚ್ಚಿಸಬಹುದು. ಬೆಳೆಗಳನ್ನು ಪರಿಶೀಲಿಸಿ."
+              : isHi
+              ? "उच्च आर्द्रता से कीटों की गतिविधि बढ़ सकती है। फसलों का निरीक्षण करें।"
+              : "High humidity may increase pest activity. Inspect crops.";
+          }
+          alerts.push({
+            id: "pest",
+            type: "pest",
+            icon: "🐛",
+            title: isKn ? "ಕೀಟ ಬಾಧೆ ಎಚ್ಚರಿಕೆ" : isHi ? "कीट प्रकोप चेतावनी" : "Pest Outbreak Warning",
+            message,
+            severity,
+          });
+        } else if (data.humidity > 60) {
+          alerts.push({
+            id: "pest",
+            type: "pest",
+            icon: "🐛",
+            title: isKn ? "ಕೀಟ ಬಾಧೆ ಎಚ್ಚರಿಕೆ" : isHi ? "कीट प्रकोप चेतावनी" : "Pest Outbreak Warning",
+            message: isKn
+              ? "ಮಧ್ಯಮ ತೇವಾಂಶ. ಬೆಳೆಗಳ ಆರೋಗ್ಯದ ಮೇಲೆ ನಿಗಾ ಇರಿಸಿ."
+              : isHi
+              ? "मध्यम आर्द्रता। फसल के स्वास्थ्य की निगरानी जारी रखें।"
+              : "Moderate humidity. Keep monitoring crop health.",
+            severity: "Low",
+          });
+        }
+
+        // 4. Frost Warning
+        if (data.temp < 18) {
+          let message = "";
+          let severity: "Low" | "Medium" | "High" = "Low";
+          if (data.temp < 10) {
+            severity = "High";
+            message = isKn
+              ? `ಅತಿಯಾದ ಚಳಿ (${data.temp}°C). ಹಿಮದ ಎಚ್ಚರಿಕೆ! ಇಂದು ರಾತ್ರಿ ಸೂಕ್ಷ್ಮ ಬೆಳೆಗಳನ್ನು ರಕ್ಷಿಸಿ.`
+              : isHi
+              ? `अत्यधिक ठंड (${data.temp}°C)। पाला पड़ने की चेतावनी! संवेदनशील फसलों की रक्षा करें।`
+              : `Severe cold (${data.temp}°C). Frost warning! Protect sensitive crops tonight.`;
+          } else if (data.temp < 15) {
+            severity = "Medium";
+            message = isKn
+              ? "ಕಡಿಮೆ ತಾಪಮಾನವು ಇಂದು ರಾತ್ರಿ ಬೆಳೆಗಳ ಮೇಲೆ ಪರಿಣಾಮ ಬೀರಬಹುದು. ಲಘು ನೀರಾವರಿ ಪರಿಗಣಿಸಿ."
+              : isHi
+              ? "कम तापमान से आज रात फसलों पर असर पड़ सकता है। हल्की सिंचाई करें।"
+              : "Low temperatures may affect crops tonight. Consider light irrigation.";
+          } else {
+            severity = "Low";
+            message = isKn
+              ? "ತಂಪಾದ ಹವಾಮಾನ. ಉಷ್ಣವಲಯದ ಬೆಳೆಗಳ ಮೇಲೆ ಸೌಮ್ಯ ಪರಿಣಾಮ."
+              : isHi
+              ? "ठंडा मौसम। उष्णकटिबंधीय फसलों पर हल्का प्रभाव।"
+              : "Cool weather. Mild impact on tropical crops.";
+          }
+          alerts.push({
+            id: "frost",
+            type: "frost",
+            icon: "❄️",
+            title: isKn ? "ಹಿಮ ಎಚ್ಚರಿಕೆ" : isHi ? "पाला चेतावनी" : "Frost Warning",
+            message,
+            severity,
+          });
+        }
+
+        setWeatherAlerts(alerts);
+      } catch (err) {
+        console.error("Failed to load home weather alerts:", err);
+        setWeatherAlerts([]);
+      } finally {
+        setIsLoadingWeatherAlerts(false);
+      }
+    };
+
+    if (role === "home") {
+      loadHomeWeatherAlerts();
+    }
+  }, [selectedId, role, language]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -321,7 +722,8 @@ const Index = () => {
     const dest: Role = authRole === "farmer" ? "farmerProfile" : authRole === "buyer" ? "buyer" : "labourer";
     const timer = window.setTimeout(() => navigateTo(dest), 1300);
     return () => window.clearTimeout(timer);
-  }, [authStep]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStep, authRole]);
 
   useEffect(() => {
     if (role === "buyer" && !buyerProfile.name) {
@@ -330,6 +732,121 @@ const Index = () => {
       setRole("home");
     }
   }, [role, buyerProfile.name, labourerProfile.name]);
+
+  // Dynamic relative time calculator for the Live Price card
+  const getMinutesAgo = (date: Date | null) => {
+    if (!date) return "";
+    const diffMs = Date.now() - date.getTime() + (timeTicker * 0); 
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins <= 0) {
+      return language === "kn" ? "ಈಗಷ್ಟೇ ನವೀಕರಿಸಲಾಗಿದೆ" : language === "hi" ? "अभी-अभी अपडेट किया गया" : "Updated just now";
+    }
+    return language === "kn"
+      ? `${diffMins} ನಿಮಿಷಗಳ ಹಿಂದೆ ನವೀಕರಿಸಲಾಗಿದೆ`
+      : language === "hi"
+      ? `${diffMins} मिनट पहले अपडेट किया गया`
+      : `Updated ${diffMins} mins ago`;
+  };
+
+  // Dynamic Mandi Prices loader with auto-refresh (5 mins) and time ticker (30s)
+  useEffect(() => {
+    const loadHomeMandiPrices = async () => {
+      setIsLoadingHomeMandi(true);
+      setHomeMandiError(null);
+      try {
+        const stateFilter = "Karnataka"; 
+        const records = await mandiService.fetchLivePrices({ state: stateFilter, limit: 120 });
+        setHomeMandiRecords(records);
+        setLastUpdatedMandi(new Date());
+      } catch (err: any) {
+        console.error("Home Mandi API loader error:", err);
+        setHomeMandiError(err.message || "Failed to load live prices");
+      } finally {
+        setIsLoadingHomeMandi(false);
+      }
+    };
+
+    loadHomeMandiPrices();
+
+    const refreshTimer = setInterval(loadHomeMandiPrices, 5 * 60 * 1000);
+    const clockTicker = setInterval(() => setTimeTicker(prev => prev + 1), 30 * 1000);
+
+    return () => {
+      clearInterval(refreshTimer);
+      clearInterval(clockTicker);
+    };
+  }, [farmerProfile.district]);
+
+  // Match the user's primary crop against loaded records to render location-based prices
+  const getPrimaryCropLivePrice = useMemo(() => {
+    if (homeMandiRecords.length === 0) return null;
+    
+    const targetCrop = farmerProfile.crop || "Tomato";
+    const userDistrict = farmerProfile.district || "Mysuru";
+    
+    let match = homeMandiRecords.find(r => 
+      r.commodity.toLowerCase().includes(targetCrop.toLowerCase()) && 
+      r.district.toLowerCase().includes(userDistrict.toLowerCase())
+    );
+
+    if (!match) {
+      match = homeMandiRecords.find(r => 
+        r.commodity.toLowerCase().includes(targetCrop.toLowerCase())
+      );
+    }
+
+    if (!match) {
+      const primaryCrops = ["tomato", "onion", "potato", "ginger", "chilli", "carrot", "banana"];
+      match = homeMandiRecords.find(r => 
+        primaryCrops.some(pc => r.commodity.toLowerCase().includes(pc))
+      );
+    }
+
+    return match || homeMandiRecords[0];
+  }, [homeMandiRecords, farmerProfile.crop, farmerProfile.district]);
+
+  // Load full Mandi Prices list when Prices Tab is active or State filter changes
+  useEffect(() => {
+    if (farmerTab !== "market" && role !== "buyer") return;
+
+    const loadTabMandiPrices = async () => {
+      setIsLoadingMandi(true);
+      setMandiError(null);
+      try {
+        const records = await mandiService.fetchLivePrices({ state: mandiStateFilter, limit: 150 });
+        setMandiRecords(records);
+      } catch (err: any) {
+        console.error("Tab Mandi loader error:", err);
+        setMandiError(err.message || "Failed to load market rates");
+      } finally {
+        setIsLoadingMandi(false);
+      }
+    };
+
+    loadTabMandiPrices();
+  }, [farmerTab, role, mandiStateFilter]);
+
+  // Fetch historical points for chart visualization when a crop chart is opened
+  useEffect(() => {
+    if (!selectedChartCrop) return;
+
+    const loadHistory = async () => {
+      setIsLoadingHistory(true);
+      try {
+        const points = await mandiService.fetchCropPriceHistory(
+          selectedChartCrop.commodity,
+          selectedChartCrop.market
+        );
+        setCropHistoryData(points);
+      } catch (err) {
+        console.warn("Chart data load failure:", err);
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    };
+
+    loadHistory();
+  }, [selectedChartCrop]);
 
   const navigateTo = (nextRole: Role, nextTab = farmerTab) => {
     setHistory((items) => [...items, { role, farmerTab }].slice(-12));
@@ -345,12 +862,167 @@ const Index = () => {
   };
   const handleApplyJob = (id: number) => setLabourJobs((jobs) => jobs.map((job) => job.id === id ? { ...job, isApplied: true, filledSlots: Math.min(job.totalSlots, job.filledSlots + 1) } : job));
   const goFarmerTab = (tab: FarmerTab) => navigateTo("farmer", tab);
-  const requestOtp = () => {
-    setAuthStep("otp");
-    setResendTimer(60);
-    window.setTimeout(() => otpRefs.current[0]?.focus(), 80);
+  const handlePostAuth = async (user: any) => {
+    setCurrentUser(user);
+
+    // Fetch existing profile from the database first to sync name & district on login
+    const { data: existingProfile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    const stateName = authRole === "farmer" ? farmerProfile.name : authRole === "buyer" ? buyerProfile.name : labourerProfile.name;
+    const fullName = stateName || existingProfile?.full_name || "Verified " + authRole.charAt(0).toUpperCase() + authRole.slice(1);
+    const district = authDistrict || existingProfile?.district || "Mysuru";
+
+    // Save the profile info to sync database triggers
+    await supabase.from("profiles").upsert([
+      {
+        user_id: user.id,
+        phone: user.phone ?? (phoneNumber ? `+91${phoneNumber}` : null),
+        email: user.email ?? (email || null),
+        role: authRole,
+        language,
+        full_name: fullName,
+        district: district
+      },
+    ], { onConflict: "user_id" });
+
+    // Save detailed profile configs and sync them to React states immediately
+    if (authRole === "farmer") {
+      setFarmerProfile(p => ({ ...p, name: fullName, district: district }));
+      await supabase.from("farmer_details").upsert({
+        user_id: user.id,
+        primary_crop: farmerProfile.crop || null,
+        farmer_id: farmerProfile.fid || null,
+      });
+      // Fetch details if any
+      const { data: farmer } = await supabase.from("farmer_details").select("*").eq("user_id", user.id).maybeSingle();
+      if (farmer) setFarmerProfile(p => ({ ...p, crop: farmer.primary_crop || "", fid: farmer.farmer_id || "" }));
+    } else if (authRole === "buyer") {
+      setBuyerProfile(p => ({ ...p, name: fullName, district: district }));
+      await supabase.from("buyer_details").upsert({
+        user_id: user.id,
+        business_id: buyerProfile.company || null,
+      });
+      // Fetch details if any
+      const { data: buyer } = await supabase.from("buyer_details").select("*").eq("user_id", user.id).maybeSingle();
+      if (buyer) setBuyerProfile(p => ({ ...p, company: buyer.business_id || "" }));
+    } else if (authRole === "labourer") {
+      setLabourerProfile(p => ({ ...p, name: fullName, district: district }));
+      const skillsList = labourerProfile.skills.split(",").map(s => s.trim().toLowerCase());
+      const validSkills = ["harvesting", "sowing", "ploughing", "machine_operator", "loading"];
+      const userSkills = skillsList.filter(s => validSkills.includes(s));
+      if (userSkills.length > 0) {
+        await supabase.from("labourer_skills").upsert(
+          userSkills.map((s) => ({ user_id: user.id, skill: s as any })),
+          { onConflict: "user_id,skill", ignoreDuplicates: true }
+        );
+      }
+      // Fetch skills if any
+      const { data: skills } = await supabase.from("labourer_skills").select("skill").eq("user_id", user.id);
+      if (skills) setLabourerProfile(p => ({ ...p, skills: skills.map((s: any) => s.skill).join(", ") }));
+    }
+
+    toast.success("Welcome!");
+    setAuthStep("success");
   };
-  const verifyOtp = () => setAuthStep("success");
+
+  const handleEmailLogin = async () => {
+    if (!email || !password) {
+      toast.error("Please enter your email and password.");
+      return;
+    }
+    setIsAuthLoading(true);
+    try {
+      const result = await loginWithEmail(email, password);
+      if (result?.user) {
+        await handlePostAuth(result.user);
+      }
+    } catch (err: any) {
+      console.error("Email login failed:", err);
+      toast.error(err.message || "Failed to log in with email. Please check your credentials.");
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleEmailRegister = async () => {
+    if (!email || !password) {
+      toast.error("Please enter your email and password.");
+      return;
+    }
+    const fullName = authRole === "farmer" ? farmerProfile.name : authRole === "buyer" ? buyerProfile.name : labourerProfile.name;
+    if (!fullName) {
+      toast.error("Please enter your full name.");
+      return;
+    }
+    setIsAuthLoading(true);
+    try {
+      const meta = {
+        full_name: fullName,
+        district: authDistrict,
+        role: authRole,
+        language
+      };
+      const result = await signupWithEmail(email, password, authRole, meta);
+      if (result?.user) {
+        await handlePostAuth(result.user);
+      }
+    } catch (err: any) {
+      console.error("Email registration failed:", err);
+      toast.error(err.message || "Failed to register with email. Please try again.");
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const requestOtp = async () => {
+    if (phoneNumber.length !== 10) {
+      toast.error("Please enter a valid 10-digit phone number");
+      return;
+    }
+    setIsAuthLoading(true);
+    try {
+      const meta = {
+        full_name: authRole === "farmer" ? farmerProfile.name : authRole === "buyer" ? buyerProfile.name : labourerProfile.name,
+        district: authDistrict,
+        role: authRole,
+        language
+      };
+      await sendOTP(phoneNumber, authRole, meta);
+      toast.success("OTP sent to +91 " + phoneNumber);
+      setAuthStep("otp");
+      setResendTimer(60);
+      window.setTimeout(() => otpRefs.current[0]?.focus(), 80);
+    } catch (err: any) {
+      console.error("OTP send failed:", err);
+      toast.error(err.message || "Failed to send OTP. Please check your phone number and network connection.");
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const verifyOtp = async () => {
+    const otpToken = otp.join("");
+    if (otpToken.length !== 6) {
+      toast.error("Please enter the 6-digit OTP code");
+      return;
+    }
+    setIsAuthLoading(true);
+    try {
+      const result = await verifyOTP(phoneNumber, otpToken);
+      if (result?.user) {
+        await handlePostAuth(result.user);
+      }
+    } catch (err: any) {
+      console.error("OTP verify failed:", err);
+      toast.error(err.message || "Invalid or expired OTP token. Please try again.");
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
   const updateOtp = (index: number, value: string) => {
     const digit = value.replace(/\D/g, "").slice(-1);
     setOtp((digits) => digits.map((currentDigit, current) => current === index ? digit : currentDigit));
@@ -359,10 +1031,17 @@ const Index = () => {
   const handleOtpKeyDown = (index: number, event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Backspace" && !otp[index] && index > 0) otpRefs.current[index - 1]?.focus();
   };
-  const logoutUser = () => {
+  const logoutUser = async () => {
+    // Sign out from Supabase session
+    await supabaseLogout().catch(console.error);
     localStorage.removeItem("krishi-session");
+    setCurrentUser(null);
     setPhoneNumber("");
     setOtp(Array(6).fill(""));
+    setEmail("");
+    setPassword("");
+    setAuthMethod("phone");
+    setAuthMode("login");
     setAuthStep("phone");
     setHistory([]);
     setFarmerProfile({ name: "", district: "Mysuru", crop: "Tomato", fid: "" });
@@ -376,6 +1055,9 @@ const Index = () => {
     setAuthStep("phone");
     setPhoneNumber("");
     setOtp(Array(6).fill(""));
+    setEmail("");
+    setPassword("");
+    setAuthMethod("phone");
     navigateTo(`${nextRole}Auth` as Role);
   };
 
@@ -430,63 +1112,424 @@ const Index = () => {
     </div>
   );
 
-  const renderLiveMarketRates = () => (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel">
-        <h2 className="font-display text-xl font-black text-primary">Govt APMC Daily Rates</h2>
-        <div className="flex items-center rounded-full border border-glass-border bg-secondary/30 p-1">
-          <button onClick={() => setPriceUnit("qtl")} className={`rounded-full px-4 py-2 text-sm font-black transition-colors ${priceUnit === "qtl" ? "bg-card text-foreground shadow-control" : "text-muted-foreground"}`}>Per Quintal (100kg)</button>
-          <button onClick={() => setPriceUnit("kg")} className={`rounded-full px-4 py-2 text-sm font-black transition-colors ${priceUnit === "kg" ? "bg-card text-foreground shadow-control" : "text-muted-foreground"}`}>Per KG</button>
-        </div>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {liveMandiPrices.map((crop) => {
-          const l = crop[language as "en" | "kn" | "hi"] || crop.en;
-          const altL = crop.alternative_market[('name_' + language) as keyof typeof crop.alternative_market] || crop.alternative_market.name_en;
-          const divisor = priceUnit === "qtl" ? 1 : 100;
-          const modalPrice = crop.modal_price_qtl / divisor;
-          const minPrice = crop.min_price_qtl / divisor;
-          const maxPrice = crop.max_price_qtl / divisor;
-          const altModalPrice = crop.alternative_market.modal_qtl / divisor;
-          const suffix = priceUnit === "qtl" ? "/qtl" : "/kg";
-          const isUp = crop.trend === "up";
-          const isDown = crop.trend === "down";
-          const expanded = expandedMarketCards[crop.crop_id] || false;
+  // Dynamically extract unique districts in loaded records
+  const uniqueDistricts = useMemo(() => {
+    const set = new Set(mandiRecords.map(r => r.district));
+    return ["all", ...Array.from(set)].sort();
+  }, [mandiRecords]);
 
-          return (
-            <article key={crop.crop_id} className="rounded-[1.25rem] border border-glass-border bg-card p-4 shadow-control transition-shadow hover:shadow-glass">
-              <div className="mb-3 flex items-start justify-between">
-                <div className="flex items-center gap-2"><span className="text-3xl">{crop.icon}</span><h3 className="font-display text-lg font-black">{l.crop_name}</h3></div>
-                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-black ${isUp ? "bg-[#2E7D32]/10 text-[#2E7D32]" : isDown ? "bg-[#D32F2F]/10 text-[#D32F2F]" : "bg-secondary text-muted-foreground"}`}>
-                  {crop.pct_change > 0 ? "+" : ""}{crop.pct_change}% {isUp ? <ChevronUp className="size-3" /> : isDown ? <ChevronDown className="size-3" /> : ""}
-                </span>
-              </div>
-              <p className="mb-3 text-xs font-bold text-muted-foreground"><MapPin className="mr-1 inline size-3 text-primary" />{l.market}</p>
-              <div className="mb-3 rounded-2xl bg-secondary/25 p-3 text-center">
-                <p className="text-xs font-black uppercase text-muted-foreground">Modal Price</p>
-                <p className="font-display text-2xl font-black text-primary"><IndianRupee className="inline size-5" />{modalPrice.toLocaleString()}{suffix}</p>
-                <div className="mt-2 flex justify-center gap-4 text-xs font-bold text-muted-foreground">
-                  <span>Min: ₹{minPrice.toLocaleString()}</span>
-                  <span>Max: ₹{maxPrice.toLocaleString()}</span>
-                </div>
-              </div>
-              
-              <button className="flex w-full items-center justify-between rounded-xl border border-glass-border bg-secondary/10 px-4 py-3 text-sm font-bold transition-colors hover:bg-secondary/30" onClick={() => setExpandedMarketCards(prev => ({ ...prev, [crop.crop_id]: !expanded }))}>
-                <span>Check Alternative Mandi</span>
-                {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-              </button>
-              {expanded && (
-                <div className="mt-2 animate-in fade-in slide-in-from-top-2 rounded-xl bg-accent/15 p-3 shadow-inner">
-                  <p className="text-xs font-bold uppercase text-accent-foreground">{altL}</p>
-                  <p className="mt-1 font-black"><IndianRupee className="inline size-4 text-muted-foreground" />{altModalPrice.toLocaleString()}{suffix}</p>
-                </div>
+  // Dynamically extract markets belonging to the selected district
+  const uniqueMarkets = useMemo(() => {
+    const filtered = mandiDistrictFilter === "all"
+      ? mandiRecords
+      : mandiRecords.filter(r => r.district === mandiDistrictFilter);
+    const set = new Set(filtered.map(r => r.market));
+    return ["all", ...Array.from(set)].sort();
+  }, [mandiRecords, mandiDistrictFilter]);
+
+  // Apply filters to loaded Mandi records
+  const filteredMandiRecords = useMemo(() => {
+    return mandiRecords.filter(r => {
+      const transCrop = mandiService.translateCrop(r.commodity, language).toLowerCase();
+      const rawCrop = r.commodity.toLowerCase();
+      const search = mandiSearch.toLowerCase();
+      
+      const matchesSearch = rawCrop.includes(search) || transCrop.includes(search);
+      const matchesDistrict = mandiDistrictFilter === "all" || r.district === mandiDistrictFilter;
+      const matchesMarket = mandiMarketFilter === "all" || r.market === mandiMarketFilter;
+      
+      return matchesSearch && matchesDistrict && matchesMarket;
+    });
+  }, [mandiRecords, mandiSearch, mandiDistrictFilter, mandiMarketFilter, language]);
+
+  // Calculate top gainers and losers in the state
+  const gainersAndLosers = useMemo(() => {
+    if (mandiRecords.length === 0) return { gainers: [], losers: [] };
+    
+    // Group and identify deltas
+    const uniqueComms = Array.from(new Set(mandiRecords.map(r => r.commodity)));
+    const calculated = uniqueComms.map(comm => {
+      const trend = mandiService.calculateMarketTrends(mandiRecords, comm);
+      const firstRecord = mandiRecords.find(r => r.commodity === comm);
+      return {
+        commodity: comm,
+        pct: trend.pct,
+        trend: trend.trend,
+        icon: getCropEmoji(comm),
+        price: firstRecord ? firstRecord.modal_price : 0
+      };
+    }).filter(c => c.price > 0 && Math.abs(c.pct) > 0.1);
+
+    const sorted = [...calculated].sort((a, b) => b.pct - a.pct);
+    const gainers = sorted.filter(c => c.pct > 0.5).slice(0, 3);
+    const losers = [...sorted].reverse().filter(c => c.pct < -0.5).slice(0, 3);
+
+    return { gainers, losers };
+  }, [mandiRecords]);
+
+  // Commodity Emoji mapping
+  function getCropEmoji(commodity: string): string {
+    const c = commodity.toLowerCase();
+    if (c.includes("tomato")) return "🍅";
+    if (c.includes("onion")) return "🧅";
+    if (c.includes("potato")) return "🥔";
+    if (c.includes("ginger")) return "🫚";
+    if (c.includes("chilli") || c.includes("chili")) return "🌶️";
+    if (c.includes("carrot")) return "🥕";
+    if (c.includes("brinjal")) return "🍆";
+    if (c.includes("beans")) return "🫘";
+    if (c.includes("paddy") || c.includes("rice")) return "🌾";
+    if (c.includes("banana")) return "🍌";
+    if (c.includes("garlic")) return "🧄";
+    if (c.includes("lemon")) return "🍋";
+    if (c.includes("maize") || c.includes("corn")) return "🌽";
+    if (c.includes("goat") || c.includes("mutton")) return "🐐";
+    return "🌱";
+  }
+
+  const renderLiveMarketRates = () => {
+    const stateOptions = ["Karnataka", "Maharashtra", "Tripura", "Tamil Nadu", "Kerala", "Uttar Pradesh", "Andhra Pradesh"];
+    
+    return (
+      <div className="space-y-5">
+        {/* Terminal Header & Unit Selection */}
+        <div className="flex flex-col gap-4 rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-display text-xl font-black text-primary flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              {language === "kn" ? "ಲೈವ್ ಎಪಿಎಂಸಿ ಮಾರುಕಟ್ಟೆ ದರಗಳು" : language === "hi" ? "लाइव मंडी बाजार दरें" : "Live APMC Market Rates"}
+            </h2>
+            <p className="text-xs font-semibold text-muted-foreground mt-0.5">
+              {language === "kn" ? "ಭಾರತ ಸರ್ಕಾರದ ಕೃಷಿ ಮಾರುಕಟ್ಟೆ (Agmarknet) ಲೈವ್ ಮೂಲಗಳಿಂದ ಪಡೆದದ್ದು" : "Direct real-time stream from Agmarknet, Ministry of Agriculture"}
+            </p>
+          </div>
+          <div className="flex items-center rounded-full border border-glass-border bg-secondary/30 p-1 shrink-0">
+            <button onClick={() => setPriceUnit("qtl")} className={`rounded-full px-4 py-2 text-xs font-black transition-colors ${priceUnit === "qtl" ? "bg-card text-foreground shadow-control" : "text-muted-foreground"}`}>
+              {language === "kn" ? "ಕ್ವಿಂಟಾಲ್ (100ಕೆಜಿ)" : "Per Quintal"}
+            </button>
+            <button onClick={() => setPriceUnit("kg")} className={`rounded-full px-4 py-2 text-xs font-black transition-colors ${priceUnit === "kg" ? "bg-card text-foreground shadow-control" : "text-muted-foreground"}`}>
+              {language === "kn" ? "ಪ್ರತಿ ಕೆಜಿ" : "Per KG"}
+            </button>
+          </div>
+        </div>
+
+        {/* Dynamic Filters & Search Panel */}
+        <div className="rounded-[1.5rem] border border-glass-border bg-card/80 p-5 shadow-control backdrop-blur-panel space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder={language === "kn" ? "ಬೆಳೆ ಹೆಸರಿನಿಂದ ಹುಡುಕಿ..." : language === "hi" ? "फसल का नाम खोजें..." : "Search crop by name..."}
+                value={mandiSearch}
+                onChange={(e) => setMandiSearch(e.target.value)}
+                className="h-11 w-full rounded-xl bg-background/55 pl-10 pr-4 text-sm font-bold border border-glass-border outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+              {mandiSearch && (
+                <button onClick={() => setMandiSearch("")} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  <X className="size-4" />
+                </button>
               )}
-            </article>
-          );
-        })}
+            </div>
+
+            {/* State Select */}
+            <div>
+              <select
+                value={mandiStateFilter}
+                onChange={(e) => {
+                  setMandiStateFilter(e.target.value);
+                  setMandiDistrictFilter("all");
+                  setMandiMarketFilter("all");
+                }}
+                className="h-11 w-full rounded-xl bg-background/55 px-3 text-sm font-bold border border-glass-border outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              >
+                {stateOptions.map(st => (
+                  <option key={st} value={st}>{st}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* District Select */}
+            <div>
+              <select
+                value={mandiDistrictFilter}
+                onChange={(e) => {
+                  setMandiDistrictFilter(e.target.value);
+                  setMandiMarketFilter("all");
+                }}
+                className="h-11 w-full rounded-xl bg-background/55 px-3 text-sm font-bold border border-glass-border outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary capitalize"
+              >
+                <option value="all">
+                  {language === "kn" ? "ಎಲ್ಲಾ ಜಿಲ್ಲೆಗಳು" : language === "hi" ? "सभी जिले" : "All Districts"}
+                </option>
+                {uniqueDistricts.filter(d => d !== "all").map(dist => (
+                  <option key={dist} value={dist}>{dist}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Market Select */}
+            <div>
+              <select
+                value={mandiMarketFilter}
+                onChange={(e) => setMandiMarketFilter(e.target.value)}
+                className="h-11 w-full rounded-xl bg-background/55 px-3 text-sm font-bold border border-glass-border outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary capitalize"
+              >
+                <option value="all">
+                  {language === "kn" ? "ಎಲ್ಲಾ ಮಾರುಕಟ್ಟೆಗಳು" : language === "hi" ? "सभी मंडियां" : "All Markets"}
+                </option>
+                {uniqueMarkets.filter(m => m !== "all").map(mkt => (
+                  <option key={mkt} value={mkt}>{mkt.replace("APMC", "")}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Live Gainer & Losers Dashboard Terminal */}
+        {!isLoadingMandi && mandiRecords.length > 0 && (
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* Top Gainers */}
+            <div className="rounded-[1.5rem] border border-emerald-500/10 bg-gradient-to-br from-emerald-500/[0.02] to-transparent p-4 shadow-control">
+              <h3 className="font-display text-sm font-black text-emerald-600 dark:text-emerald-500 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
+                <ChevronUp className="size-4 animate-bounce" />
+                {language === "kn" ? "ಹೆಚ್ಚು ಬೆಲೆ ಏರಿಕೆಯಾದ ಬೆಳೆಗಳು" : language === "hi" ? "शीर्ष लाभ वाली फसलें" : "Top Market Gainers"}
+              </h3>
+              <div className="grid gap-2">
+                {gainersAndLosers.gainers.length === 0 ? (
+                  <p className="text-xs font-semibold text-muted-foreground p-2">{language === "kn" ? "ಸ್ಥಿರ ಮಾರುಕಟ್ಟೆ" : "Stable market trends"}</p>
+                ) : (
+                  gainersAndLosers.gainers.map((g, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-xl bg-card p-3 shadow-sm border border-glass-border">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{g.icon}</span>
+                        <span className="text-sm font-bold">{mandiService.translateCrop(g.commodity, language)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-bold text-muted-foreground mr-3">
+                          ₹{Math.round(g.price / (priceUnit === "qtl" ? 1 : 100)).toLocaleString()}{priceUnit === "qtl" ? "/qtl" : "/kg"}
+                        </span>
+                        <span className="inline-flex rounded-full bg-emerald-500/10 text-emerald-500 px-2.5 py-0.5 text-xs font-black">
+                          +{g.pct}%
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Top Losers */}
+            <div className="rounded-[1.5rem] border border-rose-500/10 bg-gradient-to-br from-rose-500/[0.02] to-transparent p-4 shadow-control">
+              <h3 className="font-display text-sm font-black text-rose-600 dark:text-rose-500 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
+                <ChevronDown className="size-4 animate-bounce" />
+                {language === "kn" ? "ಬೆಲೆ ಕುಸಿದ ಬೆಳೆಗಳು" : language === "hi" ? "शीर्ष गिरावट वाली फसलें" : "Top Market Decliners"}
+              </h3>
+              <div className="grid gap-2">
+                {gainersAndLosers.losers.length === 0 ? (
+                  <p className="text-xs font-semibold text-muted-foreground p-2">{language === "kn" ? "ಸ್ಥಿರ ಮಾರುಕಟ್ಟೆ" : "Stable market trends"}</p>
+                ) : (
+                  gainersAndLosers.losers.map((l, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-xl bg-card p-3 shadow-sm border border-glass-border">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{l.icon}</span>
+                        <span className="text-sm font-bold">{mandiService.translateCrop(l.commodity, language)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-bold text-muted-foreground mr-3">
+                          ₹{Math.round(l.price / (priceUnit === "qtl" ? 1 : 100)).toLocaleString()}{priceUnit === "qtl" ? "/qtl" : "/kg"}
+                        </span>
+                        <span className="inline-flex rounded-full bg-rose-500/10 text-rose-500 px-2.5 py-0.5 text-xs font-black">
+                          {l.pct}%
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Loading Skeletons */}
+        {isLoadingMandi ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map(n => (
+              <div key={n} className="rounded-[1.25rem] border border-glass-border bg-card p-5 animate-pulse space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2"><div className="size-8 rounded-full bg-muted"></div><div className="h-5 w-24 rounded bg-muted"></div></div>
+                  <div className="h-5 w-16 rounded-full bg-muted"></div>
+                </div>
+                <div className="h-3 w-32 rounded bg-muted"></div>
+                <div className="h-16 w-full rounded-xl bg-muted/60"></div>
+                <div className="h-10 w-full rounded-xl bg-muted/30"></div>
+              </div>
+            ))}
+          </div>
+        ) : filteredMandiRecords.length === 0 ? (
+          /* Empty Fallback state */
+          <div className="rounded-[2rem] border border-dashed border-glass-border bg-card/60 p-12 text-center shadow-control">
+            <span className="text-5xl block mb-3">🔍</span>
+            <h3 className="font-display text-lg font-black text-foreground">
+              {language === "kn" ? "ಯಾವುದೇ ಹೊಂದಾಣಿಕೆಯ ಬೆಳೆಗಳಿಲ್ಲ" : "No Matching Commodities Found"}
+            </h3>
+            <p className="text-sm font-bold text-muted-foreground mt-1 max-w-sm mx-auto">
+              {language === "kn" ? "ಬೇರೆ ಬೆಳೆ ಹೆಸರು ಅಥವಾ ಜಿಲ್ಲಾ ಫಿಲ್ಟರ್ ಬಳಸಿ ಪರಿಶೀಲಿಸಿ." : "Try adjusting your search query, selecting another district, or choosing a different state."}
+            </p>
+          </div>
+        ) : (
+          /* Live Mandi Rates Grid */
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {filteredMandiRecords.map((crop, idx) => {
+              const transCrop = mandiService.translateCrop(crop.commodity, language);
+              const transMarket = mandiService.translateMarket(crop.market, language);
+              const divisor = priceUnit === "qtl" ? 1 : 100;
+              const modalPrice = Math.round(crop.modal_price / divisor);
+              const minPrice = Math.round(crop.min_price / divisor);
+              const maxPrice = Math.round(crop.max_price / divisor);
+              const suffix = priceUnit === "qtl" ? (language === "kn" ? "/ಕ್ವಿಂಟಾಲ್" : "/qtl") : (language === "kn" ? "/ಕೆಜಿ" : "/kg");
+              
+              const trends = mandiService.calculateMarketTrends(mandiRecords, crop.commodity);
+              const isUp = trends.trend === "up";
+              const isDown = trends.trend === "down";
+              
+              const isChartExpanded = selectedChartCrop?.commodity === crop.commodity && selectedChartCrop?.market === crop.market;
+              
+              // Dynamic alternative market recommendation lookup in live records
+              const altMatch = mandiRecords.find(r => 
+                r.commodity.toLowerCase() === crop.commodity.toLowerCase() && 
+                r.market.toLowerCase() !== crop.market.toLowerCase()
+              );
+
+              const cropKey = `${crop.market}-${crop.commodity}-${crop.variety}-${idx}`;
+
+              return (
+                <article key={cropKey} className="rounded-[1.25rem] border border-glass-border bg-card p-4 shadow-control transition-all duration-300 hover:shadow-glass hover:-translate-y-0.5 flex flex-col justify-between">
+                  <div>
+                    {/* Card Header */}
+                    <div className="mb-3 flex items-start justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-3xl shrink-0">{getCropEmoji(crop.commodity)}</span>
+                        <div>
+                          <h3 className="font-display text-base font-black leading-tight">{transCrop}</h3>
+                          <small className="text-[10px] font-bold text-muted-foreground uppercase">{crop.variety}</small>
+                        </div>
+                      </div>
+                      <span className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-black ${
+                        isUp ? "bg-[#2E7D32]/10 text-[#2E7D32]" : isDown ? "bg-[#D32F2F]/10 text-[#D32F2F]" : "bg-secondary text-muted-foreground"
+                      }`}>
+                        {trends.pct > 0 ? "+" : ""}{trends.pct}% {isUp ? <ChevronUp className="size-3" /> : isDown ? <ChevronDown className="size-3" /> : ""}
+                      </span>
+                    </div>
+
+                    <p className="mb-3 text-xs font-bold text-muted-foreground flex items-center gap-1 leading-tight">
+                      <MapPin className="size-3 text-primary shrink-0" />
+                      {transMarket}
+                    </p>
+
+                    {/* Price Content Panel */}
+                    <div className="mb-3 rounded-2xl bg-secondary/25 p-3 text-center">
+                      <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Modal Price</p>
+                      <p className="font-display text-2xl font-black text-primary">
+                        <IndianRupee className="inline size-5 -mt-1" />{modalPrice.toLocaleString()}{suffix}
+                      </p>
+                      <div className="mt-2 flex justify-center gap-4 text-xs font-bold text-muted-foreground border-t border-glass-border/40 pt-1.5">
+                        <span>Min: ₹{minPrice.toLocaleString()}</span>
+                        <span>Max: ₹{maxPrice.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 mt-auto">
+                    {/* Toggle Trend Chart Button */}
+                    <button 
+                      onClick={() => {
+                        if (isChartExpanded) {
+                          setSelectedChartCrop(null);
+                        } else {
+                          setSelectedChartCrop({ commodity: crop.commodity, market: crop.market });
+                        }
+                      }}
+                      className={`flex w-full items-center justify-between rounded-xl border border-glass-border px-3 py-2 text-xs font-black transition-colors ${
+                        isChartExpanded ? "bg-primary text-primary-foreground" : "bg-secondary/15 hover:bg-secondary/35 text-foreground"
+                      }`}
+                    >
+                      <span>{isChartExpanded ? (language === "kn" ? "ಚಾರ್ಟ್ ಮುಚ್ಚಿ" : "Close Trend Chart") : (language === "kn" ? "ಬೆಲೆ ಏರಿಳಿತ ಚಾರ್ಟ್" : "Check Price Trend")}</span>
+                      {isChartExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+                    </button>
+
+                    {/* Chart Container Panel */}
+                    {isChartExpanded && (
+                      <div className="rounded-xl border border-glass-border/40 bg-background/45 p-2 shadow-inner animate-in fade-in slide-in-from-top-2">
+                        <p className="text-[10px] font-black uppercase text-center text-muted-foreground mb-1.5">
+                          {language === "kn" ? "ಬೆಲೆ ಇತಿಹಾಸ ಚಾರ್ಟ್" : "Modal Price History"}
+                        </p>
+                        <div className="h-32 w-full mt-1">
+                          {isLoadingHistory ? (
+                            <div className="flex h-full w-full items-center justify-center text-[10px] font-bold text-muted-foreground animate-pulse">
+                              Loading chart...
+                            </div>
+                          ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={cropHistoryData} margin={{ top: 5, right: 5, left: -28, bottom: 0 }}>
+                                <defs>
+                                  <linearGradient id={`priceGrad-${crop.commodity}-${crop.market}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#2E7D32" stopOpacity={0.3}/>
+                                    <stop offset="95%" stopColor="#2E7D32" stopOpacity={0}/>
+                                  </linearGradient>
+                                </defs>
+                                <Area 
+                                  type="monotone" 
+                                  dataKey="price" 
+                                  stroke="#2E7D32" 
+                                  strokeWidth={2} 
+                                  fillOpacity={1} 
+                                  fill={`url(#priceGrad-${crop.commodity}-${crop.market})`} 
+                                />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Alternative market recommendation toggle */}
+                    {altMatch && (
+                      <button 
+                        onClick={() => setExpandedMarketCards(prev => ({ ...prev, [cropKey]: !prev[cropKey] }))}
+                        className="flex w-full items-center justify-between rounded-xl border border-glass-border/30 bg-secondary/5 hover:bg-secondary/15 px-3 py-1.5 text-[11px] font-bold text-muted-foreground transition-colors"
+                      >
+                        <span>{language === "kn" ? "ಪರ್ಯಾಯ ಮಾರುಕಟ್ಟೆ ಪರಿಶೀಲಿಸಿ" : "Check Alternative Mandi"}</span>
+                        {expandedMarketCards[cropKey] ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+                      </button>
+                    )}
+
+                    {expandedMarketCards[cropKey] && altMatch && (
+                      <div className="mt-1.5 rounded-xl bg-accent/10 border border-accent/20 p-2.5 shadow-inner text-left animate-in fade-in slide-in-from-top-1">
+                        <p className="text-[9px] font-black uppercase text-accent-foreground">
+                          {mandiService.translateMarket(altMatch.market, language)}
+                        </p>
+                        <p className="text-xs font-black text-primary mt-0.5">
+                          ₹{Math.round(altMatch.modal_price / divisor).toLocaleString()}{suffix}
+                        </p>
+                        <small className="text-[9px] text-muted-foreground block leading-tight">
+                          {language === "kn" ? "ಹೆಚ್ಚು ಲಾಭದಾಯಕ ಮಾರುಕಟ್ಟೆ" : "Alternative recommended center"}
+                        </small>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderRentalVehicles = () => (
     <div className="space-y-4">
@@ -505,7 +1548,7 @@ const Index = () => {
           const v = vehicle[language as "en" | "kn" | "hi"] || vehicle.en;
           const typeName = vehicle[('type_' + language) as keyof typeof vehicle] || vehicle.type_en;
           const totalFare = vehicle.base_fare + (rentDistance * vehicle.per_km_charge);
-          
+
           return (
             <article key={vehicle.vehicle_id} className="flex flex-col rounded-[1.5rem] border border-glass-border bg-card p-5 shadow-control transition-shadow hover:shadow-glass">
               <div className="mb-4 flex items-start justify-between">
@@ -514,7 +1557,7 @@ const Index = () => {
               </div>
               <h3 className="font-display text-lg font-black leading-tight">{String(typeName)}</h3>
               <p className="mt-1 flex items-center gap-1 text-xs font-bold text-muted-foreground"><MapPin className="size-3 text-primary" /> {v.current_location}</p>
-              
+
               <div className="mt-4 rounded-2xl bg-secondary/35 p-4 text-center">
                 <p className="text-xs font-black uppercase text-muted-foreground">Estimated Fare</p>
                 <p className="font-display text-2xl font-black text-primary"><IndianRupee className="inline size-5" />{totalFare.toLocaleString()}</p>
@@ -539,7 +1582,7 @@ const Index = () => {
 
   const renderRecruitLabour = () => {
     const filters = ["all", "Sugarcane Harvesting", "Paddy Sowing", "Vegetable Picking"];
-    
+
     return (
       <div className="space-y-4">
         <div className="flex flex-col gap-4 rounded-[1.5rem] border border-glass-border bg-card/88 p-5 shadow-control backdrop-blur-panel sm:flex-row sm:items-center sm:justify-between">
@@ -548,7 +1591,7 @@ const Index = () => {
             <p className="text-sm font-bold text-muted-foreground">Find experienced labour crews near your farm</p>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2 overflow-x-auto pb-2">
           {filters.map(filter => (
             <button key={filter} onClick={() => setLabourCrewFilter(filter)} className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-black transition-colors ${labourCrewFilter === filter ? "bg-primary text-primary-foreground shadow-control" : "bg-card text-muted-foreground border border-glass-border hover:bg-secondary"}`}>
@@ -563,7 +1606,7 @@ const Index = () => {
             const skills = crew[('skills_' + language) as keyof typeof crew] as string[] || crew.skills_en;
             const days = crewEstimatedDays[crew.labour_id] || 1;
             const estimatedTotal = crew.group_size * crew.daily_wage_per_head * days;
-            
+
             return (
               <article key={crew.labour_id} className="flex flex-col rounded-[1.5rem] border border-glass-border bg-card p-5 shadow-control transition-shadow hover:shadow-glass">
                 <div className="mb-4 flex items-start justify-between gap-3">
@@ -573,10 +1616,10 @@ const Index = () => {
                   </div>
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/20 px-2 py-1 text-xs font-black text-accent-foreground">⭐ {crew.rating}</span>
                 </div>
-                
+
                 <p className="mb-3 flex items-center gap-1 text-sm font-bold text-muted-foreground"><MapPin className="size-4 text-primary" /> {loc.location_name}</p>
                 <p className="mb-4 text-sm font-bold text-success">{loc.availability}</p>
-                
+
                 <div className="mb-4 flex flex-wrap gap-2">
                   {skills.map(skill => (
                     <span key={skill} className="inline-flex rounded-md bg-[#E8F5E9] px-2 py-1 text-xs font-black text-[#2E7D32]">{skill}</span>
@@ -590,7 +1633,7 @@ const Index = () => {
                   </div>
                   <div className="flex items-center justify-between mb-3">
                     <label htmlFor={`days-${crew.labour_id}`} className="text-xs font-black text-muted-foreground uppercase">Est. Days Needed</label>
-                    <input id={`days-${crew.labour_id}`} type="number" min="1" max="60" value={days} onChange={(e) => setCrewEstimatedDays(prev => ({...prev, [crew.labour_id]: Number(e.target.value) || 1}))} className="w-16 rounded-lg bg-background px-2 py-1 text-center font-black outline-none border border-input focus:ring-2 focus:ring-ring" />
+                    <input id={`days-${crew.labour_id}`} type="number" min="1" max="60" value={days} onChange={(e) => setCrewEstimatedDays(prev => ({ ...prev, [crew.labour_id]: Number(e.target.value) || 1 }))} className="w-16 rounded-lg bg-background px-2 py-1 text-center font-black outline-none border border-input focus:ring-2 focus:ring-ring" />
                   </div>
                   <div className="border-t border-glass-border pt-3 flex items-center justify-between">
                     <span className="text-xs font-black uppercase text-muted-foreground">Estimated Combined Outlay</span>
@@ -641,34 +1684,557 @@ const Index = () => {
         </div>
       </header>
 
-      {role === "home" && <section className="mx-auto grid max-w-7xl gap-6 px-4 py-6 md:grid-cols-[1.1fr_0.9fr] md:py-10"><div className="rounded-[2rem] border border-glass-border bg-gradient-to-br from-card via-secondary/45 to-background p-6 shadow-glass md:p-10"><div className="mb-5 inline-flex items-center gap-2 rounded-full bg-secondary/60 px-4 py-2 text-sm font-black"><Globe2 className="size-4" /> EN · ಕನ್ನಡ · हिंदी</div><h1 className="font-display text-4xl font-black leading-tight md:text-6xl">{t.hero}</h1><p className="mt-4 max-w-2xl text-lg font-semibold text-muted-foreground">{t.sub}</p><div className="mt-7">{roleButtons}</div></div><div className="grid gap-4">{t.stats.map((stat) => <Card key={stat} title={stat} icon="🌾"><p className="text-sm font-bold text-muted-foreground">Live demand signal for Mysuru farmers</p></Card>)}<Button variant="secondaryFarm" className="h-14 rounded-full text-base font-black"><Mic />{t.voice}</Button></div></section>}
-
-      {(role === "farmerAuth" || role === "buyerAuth" || role === "labourerAuth") && (
-        <section className="relative mx-auto flex min-h-[calc(100svh-4.5rem)] max-w-7xl items-center justify-center overflow-hidden px-4 py-6">
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[18rem] opacity-[0.045] md:text-[28rem]">🌿</div>
-          <div className="relative grid w-full max-w-5xl gap-4 md:grid-cols-[1fr_0.95fr]">
-            <div className="rounded-[2rem] border border-glass-border bg-card/88 p-5 shadow-glass backdrop-blur-panel sm:p-7">
-              <div className="mb-5 flex items-center gap-3"><span className="flex size-14 items-center justify-center rounded-2xl bg-secondary/45 text-3xl shadow-control">{authIcon}</span><div><p className="text-xs font-black uppercase text-muted-foreground">{login.title}</p><h1 className="font-display text-2xl font-black leading-tight sm:text-3xl">{authStep === "register" ? login.registerTitle : login.welcome}</h1><p className="mt-1 text-sm font-bold text-muted-foreground">{login.subtitle}</p></div></div>
-              {authStep === "phone" && <div className="space-y-4"><label className="grid gap-2 text-sm font-black"><span>{login.phonePlaceholder}</span><div className="flex min-h-12 overflow-hidden rounded-2xl border border-input bg-background shadow-control"><span className="flex min-w-16 items-center justify-center border-r border-input text-base font-black text-primary">+91</span><input type="tel" inputMode="numeric" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder={login.phonePlaceholder} className="min-h-12 w-full bg-transparent px-4 text-base font-black outline-none" /></div></label><Button variant="field" className="min-h-12 w-full rounded-2xl text-base font-black" onClick={requestOtp} disabled={phoneNumber.length < 10}><Phone />{login.btnRequest}</Button><button className="w-full text-sm font-black text-primary underline-offset-4 hover:underline" onClick={requestOtp}>{login.aadhaarLogin}</button></div>}
-              {authStep === "otp" && <div className="space-y-4"><div className="grid grid-cols-6 gap-2">{otp.map((digit, index) => <input key={index} ref={(node) => { otpRefs.current[index] = node; }} value={digit} onChange={(e) => updateOtp(index, e.target.value)} onKeyDown={(e) => handleOtpKeyDown(index, e)} inputMode="numeric" pattern="[0-9]*" autoComplete={index === 0 ? "one-time-code" : "off"} maxLength={1} aria-label={`OTP digit ${index + 1}`} className="aspect-square min-h-12 rounded-2xl border border-input bg-background text-center text-xl font-black outline-none focus:ring-2 focus:ring-ring" />)}</div><div className="flex items-center justify-between gap-3 rounded-2xl bg-secondary/30 p-3 text-sm font-black"><span>OTP · {phoneNumber ? `+91 ${phoneNumber}` : "Aadhaar"}</span><button disabled={resendTimer > 0} onClick={() => setResendTimer(60)} className="text-primary disabled:text-muted-foreground">{resendTimer > 0 ? `${resendTimer}s` : login.resend}</button></div><Button variant="field" className="min-h-12 w-full rounded-2xl text-base font-black" onClick={verifyOtp}><LockKeyhole />{login.btnVerify}</Button></div>}
-              {authStep === "success" && <div className="flex min-h-56 flex-col items-center justify-center rounded-[1.5rem] bg-secondary/30 p-6 text-center"><div className="growing-plant text-7xl">🌱</div><p className="mt-5 font-display text-2xl font-black text-primary">{login.profile}</p></div>}
-              <div className="mt-5 flex flex-col gap-3 border-t border-glass-border pt-4"><button className="text-sm font-black text-primary underline-offset-4 hover:underline" onClick={() => setAuthStep(authStep === "register" ? "phone" : "register")}>{authStep === "register" ? login.title : login.newMember}</button><span className="inline-flex items-center justify-center gap-2 rounded-full bg-background px-3 py-2 text-xs font-black text-muted-foreground"><ShieldCheck className="size-4 text-primary" />{login.secureNote}</span></div>
+      {role === "home" && (
+        <section className="mx-auto grid max-w-7xl gap-6 px-4 py-6 md:grid-cols-[1.1fr_0.9fr] md:py-10">
+          <div className="rounded-[2rem] border border-glass-border bg-gradient-to-br from-card via-secondary/45 to-background p-6 shadow-glass md:p-10">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-secondary/60 px-4 py-2 text-sm font-black">
+              <Globe2 className="size-4" /> EN · ಕನ್ನಡ · हिंदी
             </div>
-            <form className="rounded-[2rem] border border-glass-border bg-card/72 p-5 shadow-control backdrop-blur-panel sm:p-7" onSubmit={(e) => { e.preventDefault(); setAuthStep("success"); }}>
-              <h2 className="mb-4 font-display text-xl font-black">{login.registerTitle}</h2>
-              <div className="grid gap-3">
-                {authFields.map((f) => (
-                  <label key={f.key} className="grid gap-2 text-sm font-black"><span>{f.label}</span><input value={f.profile[f.key] ?? ""} onChange={(e) => { const v = e.target.value; f.setter((prev: any) => ({ ...prev, [f.key]: v })); }} className="min-h-12 rounded-2xl border border-input bg-background px-4 text-base font-bold outline-none focus:ring-2 focus:ring-ring" /></label>
-                ))}
-                <label className="grid gap-2 text-sm font-black"><span>{login.district}</span><select value={authDistrict} onChange={(e) => setAuthDistrict(e.target.value)} className="min-h-12 rounded-2xl border border-input bg-background px-4 text-base font-bold outline-none focus:ring-2 focus:ring-ring"><option>Mysuru</option><option>Mandya</option><option>Chamarajanagar</option><option>Kodagu</option><option>Hassan</option></select></label>
-                <Button type="submit" variant="secondaryFarm" className="mt-2 min-h-12 rounded-2xl text-base font-black"><UserRound />{login.register}</Button>
+            <h1 className="font-display text-4xl font-black leading-tight md:text-6xl">{t.hero}</h1>
+            <p className="mt-4 max-w-2xl text-lg font-semibold text-muted-foreground">{t.sub}</p>
+            <div className="mt-7">{roleButtons}</div>
+          </div>
+          <div className="grid gap-4">
+            {/* Weather Alerts Panel */}
+            {isLoadingWeatherAlerts ? (
+              <div className="rounded-[1.5rem] border border-glass-border bg-card/88 p-6 shadow-control backdrop-blur-panel text-center animate-pulse">
+                <div className="mx-auto h-8 w-8 rounded-full border-4 border-primary border-t-transparent animate-spin mb-3"></div>
+                <p className="text-sm font-bold text-muted-foreground">
+                  {language === "kn" ? "ಹವಾಮಾನ ಎಚ್ಚರಿಕೆಗಳನ್ನು ಲೋಡ್ ಮಾಡಲಾಗುತ್ತಿದೆ..." : language === "hi" ? "मौसम अलर्ट लोड हो रहा है..." : "Loading weather alerts..."}
+                </p>
               </div>
-            </form>
+            ) : weatherAlerts.length === 0 ? (
+              <Card title={language === "kn" ? "ಯಾವುದೇ ಸಕ್ರಿಯ ಎಚ್ಚರಿಕೆಗಳಿಲ್ಲ" : language === "hi" ? "कोई सक्रिय अलर्ट नहीं" : "No Active Alerts"} icon="☀️">
+                <p className="text-sm font-bold text-muted-foreground mb-2">
+                  {language === "kn" 
+                    ? "ಹವಾಮಾನ ಪರಿಸ್ಥಿತಿಗಳು ಸಹಜವಾಗಿವೆ. ಬೆಳೆಗಳಿಗೆ ಯಾವುದೇ ಅಪಾಯವಿಲ್ಲ." 
+                    : language === "hi" 
+                    ? "मौसम की स्थिति सामान्य है। फसलों को कोई खतरा नहीं है।" 
+                    : "Weather conditions are normal. No immediate risk to crops."}
+                </p>
+                <span className="inline-block rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-3 py-1 text-xs font-black uppercase tracking-wider">
+                  {language === "kn" ? "ಕಡಿಮೆ ಅಪಾಯ" : language === "hi" ? "कम जोखिम" : "Low Risk"}
+                </span>
+              </Card>
+            ) : (
+              weatherAlerts.map((alert) => (
+                <Card key={alert.id} title={alert.title} icon={alert.icon}>
+                  <p className="text-sm font-bold text-muted-foreground mb-2">{alert.message}</p>
+                  <span className={`inline-block rounded-full px-3 py-1 text-xs font-black uppercase tracking-wider ${
+                    alert.severity === "High" 
+                      ? "bg-red-500/10 text-red-500 border border-red-500/20" 
+                      : alert.severity === "Medium" 
+                      ? "bg-amber-500/10 text-amber-500 border border-amber-500/20" 
+                      : "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                  }`}>
+                    {alert.severity === "High"
+                      ? (language === "kn" ? "ಹೆಚ್ಚು ಅಪಾಯ" : language === "hi" ? "उच्च जोखिम" : "High Severity")
+                      : alert.severity === "Medium"
+                      ? (language === "kn" ? "ಮಧ್ಯಮ ಅಪಾಯ" : language === "hi" ? "मध्यम जोखिम" : "Medium Severity")
+                      : (language === "kn" ? "ಕಡಿಮೆ ಅಪಾಯ" : language === "hi" ? "कम जोखिम" : "Low Severity")}
+                  </span>
+                </Card>
+              ))
+            )}
+
+            {/* Mandi API Live Dashboard Cards */}
+            {isLoadingHomeMandi ? (
+              <>
+                {/* Mandi Cards Skeletons */}
+                <div className="rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel animate-pulse space-y-3">
+                  <div className="flex items-center gap-2"><div className="size-6 rounded-full bg-muted"></div><div className="h-4 w-32 rounded bg-muted"></div></div>
+                  <div className="h-6 w-full rounded bg-muted/65"></div>
+                  <div className="h-3 w-20 rounded bg-muted/40"></div>
+                </div>
+                <div className="rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel animate-pulse space-y-3">
+                  <div className="flex items-center gap-2"><div className="size-6 rounded-full bg-muted"></div><div className="h-4 w-24 rounded bg-muted"></div></div>
+                  <div className="h-4 w-full rounded bg-muted/50"></div>
+                </div>
+              </>
+            ) : homeMandiError && homeMandiRecords.length === 0 ? (
+              <Card title={language === "kn" ? "ಮಂಡಿ ಲೈವ್ ದರಗಳು" : language === "hi" ? "मंडी लाइव दरें" : "Live Mandi Rates"} icon="📈">
+                <p className="text-sm font-bold text-red-500 mb-2">
+                  {language === "kn" ? "ಮಂಡಿ ದರಗಳನ್ನು ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ" : "Failed to load live mandi rates. Reconnecting..."}
+                </p>
+              </Card>
+            ) : (
+              (() => {
+                const record = getPrimaryCropLivePrice;
+                const divisor = priceUnit === "qtl" ? 1 : 100;
+                const price = record ? Math.round(record.modal_price / divisor) : 3250;
+                const cropName = record ? mandiService.translateCrop(record.commodity, language) : (language === "kn" ? "ಟೊಮೆಟೊ" : "Tomato");
+                const marketName = record ? mandiService.translateMarket(record.market, language) : "Mysuru APMC";
+                const unitSuffix = priceUnit === "qtl" ? (language === "kn" ? "/ಕ್ವಿಂಟಾಲ್" : "/qtl") : (language === "kn" ? "/ಕೆಜಿ" : "/kg");
+                
+                const trendDetails = record ? mandiService.calculateMarketTrends(homeMandiRecords, record.commodity) : { trend: "up" as const, pct: 3.8 };
+                const trendSymbol = trendDetails.trend === "up" ? "↑" : trendDetails.trend === "down" ? "↓" : "→";
+                const trendColor = trendDetails.trend === "up" ? "text-emerald-500 bg-emerald-500/10 border-emerald-500/20" : trendDetails.trend === "down" ? "text-rose-500 bg-rose-500/10 border-rose-500/20" : "text-muted-foreground bg-secondary";
+                
+                const demandSignals = mandiService.generateDemandSignals(homeMandiRecords, language);
+                const bestCropText = mandiService.generateCropSuggestions(homeMandiRecords, language, farmerProfile.district);
+
+                return (
+                  <>
+                    {/* 1. Real-Time Price Card */}
+                    <section className="rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel transition-all duration-300 hover:shadow-glass relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 h-16 w-16 bg-gradient-to-bl from-primary/10 to-transparent rounded-bl-full pointer-events-none transition-all group-hover:scale-110"></div>
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-2xl">📈</span>
+                          <h2 className="font-display text-lg font-black">
+                            {language === "kn" ? "ಲೈವ್ ಮಾರುಕಟ್ಟೆ ದರ" : language === "hi" ? "लाइव मंडी मूल्य" : "Live Market Rate"}
+                          </h2>
+                        </div>
+                        <span className="flex items-center text-[10px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                          <span className="relative flex h-1.5 w-1.5 mr-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                          </span>
+                          LIVE
+                        </span>
+                      </div>
+                      
+                      <div className="mb-3">
+                        <div className="flex items-baseline justify-between">
+                          <p className="font-display text-2xl font-black text-primary">
+                            ₹{price.toLocaleString()}{unitSuffix}
+                          </p>
+                          <span className={`inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-black uppercase ${trendColor}`}>
+                            {trendSymbol} {Math.abs(trendDetails.pct)}%
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm font-bold text-foreground">
+                          {cropName} · <span className="text-muted-foreground font-semibold">{marketName}</span>
+                        </p>
+                      </div>
+
+                      <div className="border-t border-glass-border/40 pt-2 flex justify-between items-center text-[11px] font-bold text-muted-foreground">
+                        <span>{language === "kn" ? "ಇತ್ತೀಚಿನ ಆಗಮನ" : language === "hi" ? "नवीनतम आवक" : "Latest APMC Arrival"}</span>
+                        <span>{getMinutesAgo(lastUpdatedMandi)}</span>
+                      </div>
+                    </section>
+
+                    {/* 2. Demand Signal Card */}
+                    <section className="rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel transition-all duration-300 hover:shadow-glass relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 h-16 w-16 bg-gradient-to-bl from-blue-500/10 to-transparent rounded-bl-full pointer-events-none transition-all group-hover:scale-110"></div>
+                      <div className="mb-3 flex items-center gap-2">
+                        <span className="text-2xl">🌐</span>
+                        <h2 className="font-display text-lg font-black">
+                          {language === "kn" ? "ಬೇಡಿಕೆ ಸಂಕೇತಗಳು" : language === "hi" ? "मांग संकेत" : "Market Demand Signals"}
+                        </h2>
+                      </div>
+                      
+                      <div className="space-y-2.5">
+                        {demandSignals.map((sig, idx) => (
+                          <div key={idx} className="flex items-center justify-between border-b border-glass-border/30 pb-2 last:border-none last:pb-0">
+                            <span className="font-bold text-sm text-foreground pr-2">{sig.label}</span>
+                            <span className={`rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider shrink-0 border ${
+                              sig.trend === "export" 
+                                ? "bg-indigo-500/10 text-indigo-500 border-indigo-500/20" 
+                                : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                            }`}>
+                              {sig.trend === "export" 
+                                ? (language === "kn" ? "ರಫ್ತು ಬೇಡಿಕೆ" : language === "hi" ? "निर्यात" : "Export") 
+                                : (language === "kn" ? "ಸ್ಥಳೀಯ ಮಾರುಕಟ್ಟೆ" : language === "hi" ? "स्थानीय" : "Local")}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    {/* 3. Best Crop Suggestion Card */}
+                    <section className="rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel transition-all duration-300 hover:shadow-glass relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 h-16 w-16 bg-gradient-to-bl from-amber-500/10 to-transparent rounded-bl-full pointer-events-none transition-all group-hover:scale-110"></div>
+                      <div className="mb-3 flex items-center gap-2">
+                        <span className="text-2xl">🏆</span>
+                        <h2 className="font-display text-lg font-black">
+                          {language === "kn" ? "ಶಿಫಾರಸು ಮಾಡಿದ ಬೆಳೆ" : language === "hi" ? "अनुशंसित फसल" : "Profitable Crop Pick"}
+                        </h2>
+                      </div>
+                      <p className="text-sm font-bold text-foreground mb-3 leading-relaxed">
+                        {bestCropText}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20 px-3 py-1 text-xs font-black uppercase tracking-wider">
+                          {language === "kn" ? "ಹೆಚ್ಚು ಲಾಭದಾಯಕ" : language === "hi" ? "अत्यधिक लाभदायक" : "Highly Profitable"}
+                        </span>
+                        <span className="inline-block rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 px-3 py-1 text-xs font-black uppercase tracking-wider">
+                          {language === "kn" ? "ಕಡಿಮೆ ಅಪಾಯ" : language === "hi" ? "कम जोखिम" : "Low Risk"}
+                        </span>
+                      </div>
+                    </section>
+                  </>
+                );
+              })()
+            )}
+
+            <Button variant="secondaryFarm" className="h-14 rounded-full text-base font-black" onClick={() => setIsVoiceAssistantOpen(true)}>
+              <Mic />{t.voice}
+            </Button>
           </div>
         </section>
       )}
 
-      {role === "farmerProfile" && <section className="relative mx-auto flex min-h-[calc(100svh-4.5rem)] max-w-5xl flex-col px-4 py-5 pb-8"><div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[16rem] opacity-[0.045] md:text-[30rem]">🌿</div><div className="relative ml-auto mb-4 flex w-fit rounded-full border border-glass-border bg-card/90 p-1 shadow-control backdrop-blur-panel">{(["en", "kn"] as Language[]).map((lng) => <Button key={lng} variant={language === lng ? "field" : "ghost"} size="sm" className="h-11 min-w-14 rounded-full font-black" onClick={() => setLanguage(lng)}>{lng === "en" ? "EN" : "ಕನ್ನಡ"}</Button>)}</div><div className="relative flex flex-1 flex-col gap-4"><div className="rounded-[2rem] border border-glass-border bg-card/88 p-5 shadow-glass backdrop-blur-panel sm:p-7"><div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><div className="flex size-20 shrink-0 items-center justify-center rounded-full border-4 border-secondary bg-background shadow-control sm:size-24"><User className="size-10 text-primary sm:size-12" /></div><div><p className="text-xs font-black uppercase text-muted-foreground">{profileText.title}</p><div className="mt-1 flex flex-wrap items-center gap-2"><h1 className="font-display text-2xl font-black sm:text-4xl">{farmerProfile.name || professionalFarmer.name}</h1><span className="inline-flex items-center gap-1 rounded-full bg-secondary/45 px-3 py-1 text-xs font-black text-primary"><ShieldCheck className="size-4" />{profileText.verified}</span></div><p className="mt-2 flex items-center gap-2 text-sm font-bold text-muted-foreground"><MapPin className="size-4 text-primary" />{professionalFarmer.location[language]}</p></div></div><Button variant="field" className="min-h-12 rounded-full font-black" onClick={() => navigateTo("farmer")}>{login.dashboard}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-secondary/25 p-4"><p className="text-xs font-black uppercase text-muted-foreground">{profileText.fid}</p><p className="mt-1 font-black">{farmerProfile.fid || professionalFarmer.fid}</p></div><div className="rounded-2xl bg-secondary/25 p-4"><p className="text-xs font-black uppercase text-muted-foreground">{profileText.member}</p><p className="mt-1 font-black">2026</p></div><div className="rounded-2xl bg-secondary/25 p-4"><p className="text-xs font-black uppercase text-muted-foreground">{profileText.experience}</p><p className="mt-1 font-black">{professionalFarmer.experience}</p></div></div></div><div className="grid gap-4 md:grid-cols-3"><div className="rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel"><Tractor className="mb-3 size-7 text-primary" /><p className="text-xs font-black uppercase text-muted-foreground">{profileText.land}</p><p className="mt-1 text-xl font-black">{professionalFarmer.farm.size}</p></div><div className="rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel"><Leaf className="mb-3 size-7 text-primary" /><p className="text-xs font-black uppercase text-muted-foreground">{profileText.crops}</p><p className="mt-1 text-xl font-black">🍌 Banana, 🐛 Silk</p></div><div className="rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel"><Sprout className="mb-3 size-7 text-primary" /><p className="text-xs font-black uppercase text-muted-foreground">{profileText.soil}</p><p className="mt-1 text-xl font-black">{professionalFarmer.farm.soil[language]}</p></div></div><div className="rounded-[1.5rem] border-2 border-accent bg-accent/15 p-4 shadow-control"><p className="flex items-center gap-2 text-sm font-black uppercase text-accent-foreground"><Award className="size-5" />{profileText.gi}</p><p className="mt-2 text-lg font-black">🍌 Nanjangud Rasabale</p></div><div className="rounded-[1.5rem] border border-glass-border bg-card/88 p-4 shadow-control backdrop-blur-panel"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-display text-xl font-black">{profileText.rating}</h2><div className="flex items-center gap-1 text-accent">{Array.from({ length: 5 }).map((_, index) => <Star key={index} className="size-5 fill-current" />)}<span className="ml-2 font-black text-foreground">5.0</span></div></div><p className="mb-3 text-xs font-black uppercase text-muted-foreground">{profileText.achievements}</p><div className="flex gap-3 overflow-x-auto pb-2">{professionalFarmer.achievements.map((badge) => <span key={badge} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border border-glass-border bg-secondary/35 px-4 text-sm font-black"><Award className="size-4 text-primary" />{badge}</span>)}</div></div><AlertDialog><AlertDialogContent className="rounded-[1.5rem]"><AlertDialogHeader><AlertDialogTitle>{profileText.confirmTitle}</AlertDialogTitle><AlertDialogDescription>{profileText.confirmBody}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{profileText.cancel}</AlertDialogCancel><AlertDialogAction onClick={logoutFarmer} className="border border-destructive bg-background text-destructive hover:bg-destructive hover:text-destructive-foreground">{profileText.confirm}</AlertDialogAction></AlertDialogFooter></AlertDialogContent><AlertDialogTrigger asChild><Button variant="ghost" className="mt-auto min-h-14 w-full rounded-2xl border-2 border-destructive text-base font-black uppercase tracking-wide text-destructive hover:bg-destructive hover:text-destructive-foreground"><LogOut className="size-5" />{profileText.logout}</Button></AlertDialogTrigger></AlertDialog></div></section>}
+      {(role === "farmerAuth" || role === "buyerAuth" || role === "labourerAuth") && (
+        <section className="relative mx-auto flex min-h-[calc(100svh-4.5rem)] max-w-7xl items-center justify-center overflow-hidden px-4 py-6">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[18rem] opacity-[0.045] md:text-[28rem]">🌿</div>
+          <div className="relative w-full max-w-md">
+            <div className="rounded-[2rem] border border-glass-border bg-card/90 p-6 shadow-glass backdrop-blur-panel sm:p-8 animate-sheet-in">
+              {/* Header */}
+              <div className="mb-6 flex items-center gap-3">
+                <span className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-secondary/45 text-3xl shadow-control">{authIcon}</span>
+                <div>
+                  <p className="text-xs font-black uppercase text-muted-foreground">{login.title}</p>
+                  <h1 className="font-display text-2xl font-black leading-tight sm:text-3xl">
+                    {authStep === "success" 
+                      ? (language === "kn" ? "ಯಶಸ್ವಿಯಾಗಿದೆ!" : language === "hi" ? "सफल!" : "Success!") 
+                      : authMode === "signup" 
+                      ? login.registerTitle 
+                      : login.welcome}
+                  </h1>
+                  <p className="mt-1 text-sm font-semibold text-muted-foreground">{login.subtitle}</p>
+                </div>
+              </div>
+
+              {authStep === "success" ? (
+                <div className="flex min-h-56 flex-col items-center justify-center rounded-[1.5rem] bg-secondary/30 p-6 text-center animate-pulse">
+                  <div className="growing-plant text-7xl">🌱</div>
+                  <p className="mt-5 font-display text-2xl font-black text-primary">
+                    {language === "kn" ? "ಲಾಗಿನ್ ಯಶಸ್ವಿಯಾಗಿದೆ..." : language === "hi" ? "लॉगिन सफल..." : "Logging you in..."}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Segmented Controller for Email vs Phone */}
+                  <div className="mb-6 flex rounded-full border border-glass-border bg-secondary/35 p-1 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMethod("email");
+                        if (authStep === "otp") setAuthStep("phone");
+                      }}
+                      className={`flex-1 rounded-full py-2 text-center text-xs font-black transition-all ${
+                        authMethod === "email" ? "bg-primary text-primary-foreground shadow-control" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {language === "kn" ? "ಇಮೇಲ್" : language === "hi" ? "ईमेल" : "Email"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMethod("phone");
+                        if (authStep === "otp") setAuthStep("phone");
+                      }}
+                      className={`flex-1 rounded-full py-2 text-center text-xs font-black transition-all ${
+                        authMethod === "phone" ? "bg-primary text-primary-foreground shadow-control" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {language === "kn" ? "ಮೊಬೈಲ್ ಒಟಿಪಿ" : language === "hi" ? "मोबाइल ओटीपी" : "Phone OTP"}
+                    </button>
+                  </div>
+
+                  {/* Forms */}
+                  {authMethod === "email" ? (
+                    <form 
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (authMode === "signup") {
+                          handleEmailRegister();
+                        } else {
+                          handleEmailLogin();
+                        }
+                      }}
+                      className="space-y-4 animate-in fade-in duration-300"
+                    >
+                      {authMode === "signup" && (
+                        <>
+                          <label className="grid gap-2 text-sm font-black">
+                            <span>{login.fullName}</span>
+                            <input
+                              type="text"
+                              value={authRole === "farmer" ? farmerProfile.name : authRole === "buyer" ? buyerProfile.name : labourerProfile.name}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (authRole === "farmer") setFarmerProfile(prev => ({ ...prev, name: v }));
+                                else if (authRole === "buyer") setBuyerProfile(prev => ({ ...prev, name: v }));
+                                else setLabourerProfile(prev => ({ ...prev, name: v }));
+                              }}
+                              placeholder={language === "kn" ? "ನಿಮ್ಮ ಪೂರ್ಣ ಹೆಸರು" : language === "hi" ? "आपका पूरा नाम" : "Enter your full name"}
+                              className="min-h-12 rounded-2xl border border-input bg-background px-4 text-base font-bold outline-none focus:ring-2 focus:ring-ring transition-all"
+                              required
+                            />
+                          </label>
+
+                          <label className="grid gap-2 text-sm font-black">
+                            <span>{login.district}</span>
+                            <select
+                              value={authDistrict}
+                              onChange={(e) => setAuthDistrict(e.target.value)}
+                              className="min-h-12 rounded-2xl border border-input bg-background px-4 text-base font-bold outline-none focus:ring-2 focus:ring-ring transition-all"
+                            >
+                              <option>Mysuru</option>
+                              <option>Mandya</option>
+                              <option>Chamarajanagar</option>
+                              <option>Kodagu</option>
+                              <option>Hassan</option>
+                            </select>
+                          </label>
+                        </>
+                      )}
+
+                      <label className="grid gap-2 text-sm font-black">
+                        <span>{login.emailPlaceholder}</span>
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder={login.emailPlaceholder}
+                          className="min-h-12 rounded-2xl border border-input bg-background px-4 text-base font-bold outline-none focus:ring-2 focus:ring-ring transition-all"
+                          required
+                        />
+                      </label>
+
+                      <label className="grid gap-2 text-sm font-black">
+                        <span>{login.passwordPlaceholder}</span>
+                        <input
+                          type="password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder={login.passwordPlaceholder}
+                          className="min-h-12 rounded-2xl border border-input bg-background px-4 text-base font-bold outline-none focus:ring-2 focus:ring-ring transition-all"
+                          required
+                        />
+                      </label>
+
+                      <Button type="submit" variant="field" className="min-h-12 w-full rounded-2xl text-base font-black shadow-sm" disabled={isAuthLoading}>
+                        {authMode === "signup" ? login.btnRegisterEmail : login.btnLogin}
+                      </Button>
+                    </form>
+                  ) : (
+                    /* Phone Number Auth Flow */
+                    <div className="space-y-4 animate-in fade-in duration-300">
+                      {authStep === "phone" ? (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            requestOtp();
+                          }}
+                          className="space-y-4"
+                        >
+                          {authMode === "signup" && (
+                            <>
+                              <label className="grid gap-2 text-sm font-black">
+                                <span>{login.fullName}</span>
+                                <input
+                                  type="text"
+                                  value={authRole === "farmer" ? farmerProfile.name : authRole === "buyer" ? buyerProfile.name : labourerProfile.name}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    if (authRole === "farmer") setFarmerProfile(prev => ({ ...prev, name: v }));
+                                    else if (authRole === "buyer") setBuyerProfile(prev => ({ ...prev, name: v }));
+                                    else setLabourerProfile(prev => ({ ...prev, name: v }));
+                                  }}
+                                  placeholder={language === "kn" ? "ನಿಮ್ಮ ಪೂರ್ಣ ಹೆಸರು" : language === "hi" ? "आपका पूरा नाम" : "Enter your full name"}
+                                  className="min-h-12 rounded-2xl border border-input bg-background px-4 text-base font-bold outline-none focus:ring-2 focus:ring-ring transition-all"
+                                  required
+                                />
+                              </label>
+
+                              <label className="grid gap-2 text-sm font-black">
+                                <span>{login.district}</span>
+                                <select
+                                  value={authDistrict}
+                                  onChange={(e) => setAuthDistrict(e.target.value)}
+                                  className="min-h-12 rounded-2xl border border-input bg-background px-4 text-base font-bold outline-none focus:ring-2 focus:ring-ring transition-all"
+                                >
+                                  <option>Mysuru</option>
+                                  <option>Mandya</option>
+                                  <option>Chamarajanagar</option>
+                                  <option>Kodagu</option>
+                                  <option>Hassan</option>
+                                </select>
+                              </label>
+                            </>
+                          )}
+
+                          <label className="grid gap-2 text-sm font-black">
+                            <span>{login.phonePlaceholder}</span>
+                            <div className="flex min-h-12 overflow-hidden rounded-2xl border border-input bg-background shadow-control">
+                              <span className="flex min-w-16 items-center justify-center border-r border-input text-base font-black text-primary bg-secondary/15">+91</span>
+                              <input
+                                type="tel"
+                                inputMode="numeric"
+                                value={phoneNumber}
+                                onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                                placeholder={login.phonePlaceholder}
+                                className="min-h-12 w-full bg-transparent px-4 text-base font-black outline-none"
+                                required
+                              />
+                            </div>
+                          </label>
+
+                          <Button type="submit" variant="field" className="min-h-12 w-full rounded-2xl text-base font-black shadow-sm" disabled={phoneNumber.length < 10 || isAuthLoading}>
+                            <Phone className="mr-2 size-5" />
+                            {login.btnRequest}
+                          </Button>
+                        </form>
+                      ) : (
+                        /* OTP Verification Code */
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            verifyOtp();
+                          }}
+                          className="space-y-4"
+                        >
+                          <div className="grid grid-cols-6 gap-2">
+                            {otp.map((digit, index) => (
+                              <input
+                                key={index}
+                                ref={(node) => { otpRefs.current[index] = node; }}
+                                value={digit}
+                                onChange={(e) => updateOtp(index, e.target.value)}
+                                onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                autoComplete={index === 0 ? "one-time-code" : "off"}
+                                maxLength={1}
+                                aria-label={`OTP digit ${index + 1}`}
+                                className="aspect-square min-h-12 rounded-2xl border border-input bg-background text-center text-xl font-black outline-none focus:ring-2 focus:ring-ring transition-all"
+                              />
+                            ))}
+                          </div>
+                          
+                          <div className="flex items-center justify-between gap-3 rounded-2xl bg-secondary/35 p-3 text-sm font-black border border-glass-border">
+                            <span>{language === "kn" ? `ಒಟಿಪಿ · +91 ${phoneNumber}` : language === "hi" ? `ओटीपी · +91 ${phoneNumber}` : `OTP sent to +91 ${phoneNumber}`}</span>
+                            <button
+                              type="button"
+                              disabled={resendTimer > 0}
+                              onClick={requestOtp}
+                              className="text-primary font-black disabled:text-muted-foreground hover:underline"
+                            >
+                              {resendTimer > 0 ? `${resendTimer}s` : login.resend}
+                            </button>
+                          </div>
+
+                          <Button type="submit" variant="field" className="min-h-12 w-full rounded-2xl text-base font-black shadow-sm" disabled={isAuthLoading}>
+                            <LockKeyhole className="mr-2 size-5" />
+                            {login.btnVerify}
+                          </Button>
+                        </form>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Toggle Sign Up / Log In */}
+                  <div className="mt-6 flex flex-col gap-3 border-t border-glass-border pt-4 text-center">
+                    <button
+                      type="button"
+                      className="text-sm font-black text-primary underline-offset-4 hover:underline"
+                      onClick={() => {
+                        setAuthMode(authMode === "signup" ? "login" : "signup");
+                        setAuthStep("phone");
+                      }}
+                    >
+                      {authMode === "signup"
+                        ? (language === "kn" ? "ರೈತರ ಲಾಗಿನ್ · ಸೈನ್ ಇನ್" : language === "hi" ? "किसान लॉगिन · साइन इन" : "Already have an account? Log In")
+                        : login.newMember}
+                    </button>
+
+                    <span className="inline-flex items-center justify-center gap-2 rounded-full bg-background/50 px-3 py-2 text-xs font-black text-muted-foreground border border-glass-border">
+                      <ShieldCheck className="size-4 text-primary" />
+                      {login.secureNote}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {role === "farmerProfile" && (
+        <section className="relative mx-auto flex min-h-[calc(100svh-4.5rem)] max-w-xl flex-col items-center justify-center px-4 py-8">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[16rem] opacity-[0.045] md:text-[24rem]">🌿</div>
+          <div className="relative w-full rounded-[2rem] border border-glass-border bg-card/90 p-6 shadow-glass backdrop-blur-panel sm:p-8 text-center animate-sheet-in">
+            {/* Language Switcher */}
+            <div className="absolute right-4 top-4 flex rounded-full border border-glass-border bg-secondary/40 p-0.5">
+              {(["en", "kn"] as Language[]).map((lng) => (
+                <button
+                  key={lng}
+                  onClick={() => setLanguage(lng)}
+                  className={`rounded-full px-3 py-1 text-xs font-black transition-colors ${
+                    language === lng ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {lng === "en" ? "EN" : "ಕನ್ನಡ"}
+                </button>
+              ))}
+            </div>
+
+            {/* Profile Avatar */}
+            <div className="mx-auto mt-4 mb-4 flex size-20 items-center justify-center rounded-full border-4 border-secondary bg-background shadow-control sm:size-24">
+              <User className="size-10 text-primary sm:size-12" />
+            </div>
+
+            {/* Name */}
+            <h1 className="font-display text-2xl font-black sm:text-3xl text-foreground">
+              {farmerProfile.name || professionalFarmer.name}
+            </h1>
+
+            {/* Region / District */}
+            <p className="mt-2 flex items-center justify-center gap-1.5 text-sm font-semibold text-muted-foreground">
+              <MapPin className="size-4 text-primary" /> {farmerProfile.district || "Mysuru"}
+            </p>
+
+            {/* Email or Phone Details */}
+            <div className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-secondary/35 px-4 py-2 text-sm font-black text-primary">
+              {currentUser?.email ? (
+                <>📧 {currentUser.email}</>
+              ) : (
+                <>📞 {currentUser?.phone || (phoneNumber ? `+91 ${phoneNumber}` : "+91 99999 XXXXX")}</>
+              )}
+            </div>
+
+            {/* Button Actions */}
+            <div className="mt-8 space-y-3">
+              <Button 
+                variant="field" 
+                className="w-full min-h-12 rounded-full font-black text-base shadow-sm" 
+                onClick={() => navigateTo("farmer")}
+              >
+                {login.dashboard}
+              </Button>
+
+              <AlertDialog>
+                <AlertDialogContent className="rounded-[1.5rem]">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{profileText.confirmTitle}</AlertDialogTitle>
+                    <AlertDialogDescription>{profileText.confirmBody}</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{profileText.cancel}</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={logoutFarmer} 
+                      className="border border-destructive bg-background text-destructive hover:bg-destructive hover:text-destructive-foreground font-black"
+                    >
+                      {profileText.confirm}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+                <AlertDialogTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    className="w-full min-h-12 rounded-full border-2 border-destructive text-base font-black text-destructive hover:bg-destructive hover:text-destructive-foreground transition-all"
+                  >
+                    <LogOut className="mr-2 size-4" /> {profileText.logout}
+                  </Button>
+                </AlertDialogTrigger>
+              </AlertDialog>
+            </div>
+          </div>
+        </section>
+      )}
 
       {role === "farmer" && (
         <section className="mx-auto max-w-7xl px-4 py-5">
@@ -704,26 +2270,26 @@ const Index = () => {
                 <select value={schemeEligibility} onChange={(e) => setSchemeEligibility(e.target.value)} className="h-11 rounded-full border border-input bg-background px-4 text-sm font-bold"><option value="all">{language === "kn" ? "ಎಲ್ಲಾ ಅರ್ಹತೆ" : "All eligibility"}</option>{schemeEligibilityOptions.slice(1).map((item) => <option key={item} value={item}>{item}</option>)}</select>
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filteredSchemes.map((scheme) => {
-                const content = scheme[language];
-                return (
-                  <article key={scheme.id} className="rounded-[1.5rem] border border-glass-border bg-card/90 p-4 shadow-control backdrop-blur-panel">
-                    <div className="mb-4 flex items-start gap-3">
-                      <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-secondary/45 text-2xl shadow-control">{content.icon}</span>
-                      <div>
-                        <p className="mb-1 inline-flex rounded-full bg-accent/35 px-3 py-1 text-xs font-black text-accent-foreground">{content.tag}</p>
-                        <h2 className="font-display text-lg font-black leading-tight">{content.title}</h2>
+                {filteredSchemes.map((scheme) => {
+                  const content = scheme[language];
+                  return (
+                    <article key={scheme.id} className="rounded-[1.5rem] border border-glass-border bg-card/90 p-4 shadow-control backdrop-blur-panel">
+                      <div className="mb-4 flex items-start gap-3">
+                        <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-secondary/45 text-2xl shadow-control">{content.icon}</span>
+                        <div>
+                          <p className="mb-1 inline-flex rounded-full bg-accent/35 px-3 py-1 text-xs font-black text-accent-foreground">{content.tag}</p>
+                          <h2 className="font-display text-lg font-black leading-tight">{content.title}</h2>
+                        </div>
                       </div>
-                    </div>
-                    <div className="space-y-3 text-sm font-bold">
-                      <p className="rounded-2xl bg-secondary/30 p-3"><span className="block text-xs uppercase text-muted-foreground">{t.benefit}</span>{content.benefit}</p>
-                      <p><span className="font-black text-primary">{t.eligibility}: </span>{content.eligibility}</p>
-                      <p className="text-muted-foreground"><span className="font-black text-foreground">{t.details}: </span>{content.description}</p>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondaryFarm" className="rounded-full" onClick={() => setSelectedScheme(scheme)}>{t.details}</Button><Button variant="field" className="rounded-full" onClick={() => setApplyingScheme(scheme)}>{t.apply}</Button></div>
-                  </article>
-                );
-              })}
+                      <div className="space-y-3 text-sm font-bold">
+                        <p className="rounded-2xl bg-secondary/30 p-3"><span className="block text-xs uppercase text-muted-foreground">{t.benefit}</span>{content.benefit}</p>
+                        <p><span className="font-black text-primary">{t.eligibility}: </span>{content.eligibility}</p>
+                        <p className="text-muted-foreground"><span className="font-black text-foreground">{t.details}: </span>{content.description}</p>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondaryFarm" className="rounded-full" onClick={() => setSelectedScheme(scheme)}>{t.details}</Button><Button variant="field" className="rounded-full" onClick={() => setApplyingScheme(scheme)}>{t.apply}</Button></div>
+                    </article>
+                  );
+                })}
               </div>
             </div>
           ) : farmerTab === "export" ? (
@@ -810,7 +2376,7 @@ const Index = () => {
           {renderLiveMarketRates()}
           <div className="grid gap-4 lg:grid-cols-3">
             {/* Card 1: Browse Crops */}
-            <div 
+            <div
               onClick={() => browseCropsRef.current?.scrollIntoView({ behavior: "smooth" })}
               className="rounded-[1.5rem] border border-glass-border bg-[#F1F8E9] p-5 shadow-control backdrop-blur-panel cursor-pointer hover:shadow-glass hover:scale-[1.01] transition-all flex flex-col justify-between"
             >
@@ -831,7 +2397,7 @@ const Index = () => {
             </div>
 
             {/* Card 2: Bulk Purchase via FPO */}
-            <div 
+            <div
               onClick={() => fpoLotsRef.current?.scrollIntoView({ behavior: "smooth" })}
               className="rounded-[1.5rem] border border-glass-border bg-card p-5 shadow-control backdrop-blur-panel cursor-pointer hover:shadow-glass hover:scale-[1.01] transition-all flex flex-col justify-between"
             >
@@ -852,7 +2418,7 @@ const Index = () => {
             </div>
 
             {/* Card 3: Order Tracking Simplified Card */}
-            <div 
+            <div
               onClick={() => trackingRef.current?.scrollIntoView({ behavior: "smooth" })}
               className="rounded-[1.5rem] border border-glass-border bg-card p-5 shadow-control backdrop-blur-panel cursor-pointer hover:shadow-glass hover:scale-[1.01] transition-all flex flex-col justify-between"
             >
@@ -875,7 +2441,7 @@ const Index = () => {
               </div>
             </div>
           </div>
-          
+
           {/* Order Tracking Milestone View */}
           <div ref={trackingRef} className="pt-2">
             <div className="rounded-[1.5rem] border border-glass-border bg-card/90 p-6 shadow-glass backdrop-blur-panel">
@@ -890,7 +2456,7 @@ const Index = () => {
                   {language === "kn" ? `ಆರ್ಡರ್: #${activeTracking.order_id}` : `Order #${activeTracking.order_id}`}
                 </span>
               </div>
-              
+
               <div className="grid gap-6 md:grid-cols-12">
                 {/* Summary & Live vehicle info */}
                 <div className="md:col-span-5 space-y-4">
@@ -946,15 +2512,15 @@ const Index = () => {
 
                   {/* Responsive Split Buttons */}
                   <div className="grid grid-cols-2 gap-3 pt-1">
-                    <a 
-                      href={`tel:${activeTracking.farmer_phone}`} 
+                    <a
+                      href={`tel:${activeTracking.farmer_phone}`}
                       className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#2E7D32] text-white font-black shadow-sm hover:bg-[#1B5E20] transition-colors text-sm"
                     >
                       <Phone className="size-4" />
                       {language === "kn" ? "ರೈತರಿಗೆ ಕರೆ" : "Call Farmer"}
                     </a>
-                    <a 
-                      href={`tel:${activeTracking.logistics_details.driver_phone}`} 
+                    <a
+                      href={`tel:${activeTracking.logistics_details.driver_phone}`}
                       className="flex h-12 items-center justify-center gap-2 rounded-full border-2 border-[#2E7D32] text-[#2E7D32] font-black hover:bg-[#E8F5E9] transition-colors text-sm bg-white"
                     >
                       <Phone className="size-4" />
@@ -968,51 +2534,48 @@ const Index = () => {
                   <p className="text-[10px] uppercase font-black text-slate-500 tracking-wider mb-4 px-1">
                     {language === "kn" ? "ಆರ್ಡರ್ ಮೈಲಿಗಲ್ಲುಗಳು" : "Order Milestones"}
                   </p>
-                  
+
                   <div className="relative pl-7 space-y-6">
                     {/* Progress Line */}
                     <div className="absolute left-[11px] top-2 bottom-2 w-0.5 bg-slate-200">
-                      <div 
-                        className="w-full bg-[#2E7D32] transition-all duration-500" 
+                      <div
+                        className="w-full bg-[#2E7D32] transition-all duration-500"
                         style={{ height: `${activeTracking.status_percentage}%` }}
                       />
                     </div>
-                    
+
                     {activeTracking.milestones.map((milestone) => {
                       const title = language === "kn" ? milestone.title_kn : language === "hi" ? milestone.title_hi : milestone.title_en;
                       const time = language === "kn" ? milestone.time_kn : language === "hi" ? milestone.time_hi : milestone.time_en;
                       const isCompleted = milestone.completed;
-                      
+
                       return (
                         <div key={milestone.id} className="relative flex flex-col md:flex-row md:items-center justify-between gap-1 md:gap-4 group">
                           {/* Dot */}
-                          <div className={`absolute -left-[24px] top-1 md:top-auto flex h-6 w-6 items-center justify-center rounded-full transition-all duration-300 ${
-                            isCompleted 
-                              ? "bg-[#2E7D32] text-white shadow-sm ring-4 ring-[#E8F5E9]" 
-                              : "bg-white border-2 border-slate-300 text-slate-400"
-                          }`}>
+                          <div className={`absolute -left-[24px] top-1 md:top-auto flex h-6 w-6 items-center justify-center rounded-full transition-all duration-300 ${isCompleted
+                            ? "bg-[#2E7D32] text-white shadow-sm ring-4 ring-[#E8F5E9]"
+                            : "bg-white border-2 border-slate-300 text-slate-400"
+                            }`}>
                             {isCompleted ? (
                               <CheckCircle className="size-3.5 text-white" />
                             ) : (
                               <div className="size-1.5 rounded-full bg-slate-300" />
                             )}
                           </div>
-                          
+
                           {/* Milestone text */}
                           <div>
-                            <p className={`font-bold text-sm transition-colors ${
-                              isCompleted ? "text-slate-800 font-extrabold" : "text-slate-400"
-                            }`}>
+                            <p className={`font-bold text-sm transition-colors ${isCompleted ? "text-slate-800 font-extrabold" : "text-slate-400"
+                              }`}>
                               {title}
                             </p>
                           </div>
-                          
+
                           {/* Time tag */}
-                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full self-start md:self-auto ${
-                            isCompleted 
-                              ? "bg-[#E8F5E9] text-[#2E7D32]" 
-                              : "bg-slate-100 text-slate-400"
-                          }`}>
+                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full self-start md:self-auto ${isCompleted
+                            ? "bg-[#E8F5E9] text-[#2E7D32]"
+                            : "bg-slate-100 text-slate-400"
+                            }`}>
                             {time}
                           </span>
                         </div>
@@ -1023,21 +2586,21 @@ const Index = () => {
               </div>
             </div>
           </div>
-          
+
           {/* Browse Crops Grid Section */}
           <div ref={browseCropsRef} className="space-y-6 pt-2">
             <div className="border-t border-glass-border pt-6" />
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <h2 className="flex items-center gap-2 font-display text-2xl font-black text-primary">
-                  <ShoppingCart className="size-7" /> 
+                  <ShoppingCart className="size-7" />
                   {t.browse}
                 </h2>
                 <p className="text-xs font-bold text-muted-foreground mt-0.5">
                   {language === "kn" ? "ಲಭ್ಯವಿರುವ ಬೆಳೆಗಳು ಮತ್ತು ಸಾವಯವ ಪ್ರಮಾಣೀಕೃತ ಲೈವ್ ಉತ್ಪನ್ನಗಳು." : "Live organic and certified crops available for direct sourcing."}
                 </p>
               </div>
-              
+
               {/* Filter Header Toolbar */}
               <div className="flex flex-wrap items-center gap-3 bg-secondary/15 p-2 rounded-2xl border border-glass-border">
                 {/* Location Dropdown */}
@@ -1047,17 +2610,17 @@ const Index = () => {
                     className="flex h-11 items-center justify-between gap-2 rounded-full border border-[#2E7D32]/35 bg-card px-4 text-xs font-black text-primary shadow-sm hover:bg-[#F1F8E9] transition-all"
                   >
                     <span>
-                      {language === "kn" ? "ಸ್ಥಳಗಳು" : "Locations"} 
+                      {language === "kn" ? "ಸ್ಥಳಗಳು" : "Locations"}
                       {selectedLocations.length > 0 ? ` (${selectedLocations.length})` : ""}
                     </span>
                     <ChevronDown className="size-3.5 text-[#2E7D32]" />
                   </button>
-                  
+
                   {locationDropdownOpen && (
                     <>
-                      <div 
-                        className="fixed inset-0 z-40" 
-                        onClick={() => setLocationDropdownOpen(false)} 
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setLocationDropdownOpen(false)}
                       />
                       <div className="absolute right-0 md:left-0 mt-2 z-50 w-64 rounded-2xl border border-glass-border bg-card p-3 shadow-glass animate-in fade-in slide-in-from-top-1">
                         <p className="text-[10px] font-black uppercase text-slate-400 mb-2 px-1">
@@ -1067,8 +2630,8 @@ const Index = () => {
                           {uniqueLocations.map((loc) => {
                             const isSelected = selectedLocations.includes(loc.id);
                             return (
-                              <label 
-                                key={loc.id} 
+                              <label
+                                key={loc.id}
                                 className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-xs font-bold cursor-pointer hover:bg-[#F1F8E9] transition-colors"
                               >
                                 <input
@@ -1126,8 +2689,8 @@ const Index = () => {
                 >
                   <span>
                     {language === "kn" ? "ಬೆಲೆ: " : "Price: "}
-                    {priceSort === "asc" 
-                      ? (language === "kn" ? "ಕಡಿಮೆಯಿಂದ ಹೆಚ್ಚು" : "Low to High") 
+                    {priceSort === "asc"
+                      ? (language === "kn" ? "ಕಡಿಮೆಯಿಂದ ಹೆಚ್ಚು" : "Low to High")
                       : (language === "kn" ? "ಹೆಚ್ಚಿನಿಂದ ಕಡಿಮೆ" : "High to Low")}
                   </span>
                   <span className="text-xs font-black text-[#2E7D32]">
@@ -1150,8 +2713,8 @@ const Index = () => {
                   const l = listing[language];
                   const isExpanded = expandedCropCards[listing.id];
                   return (
-                    <article 
-                      key={listing.id} 
+                    <article
+                      key={listing.id}
                       onClick={() => setExpandedCropCards(prev => ({ ...prev, [listing.id]: !prev[listing.id] }))}
                       className="flex flex-col cursor-pointer bg-[#F1F8E9] border border-[#2E7D32]/10 p-5 shadow-control transition-all duration-300 hover:shadow-glass hover:scale-[1.01]"
                       style={{ borderRadius: "2rem 0 2rem 0" }}
@@ -1164,16 +2727,16 @@ const Index = () => {
                           {listing.tag}
                         </span>
                       </div>
-                      
+
                       <h3 className="font-display text-base font-black leading-tight text-slate-800">
                         {l.crop_name}
                       </h3>
-                      
+
                       <p className="mt-1 text-xs font-bold text-slate-500 flex items-center gap-1">
                         <MapPin className="size-3 text-red-500 shrink-0" />
                         {l.location}
                       </p>
-                      
+
                       <div className="mt-4 grid grid-cols-2 gap-2 text-sm font-bold">
                         <div className="rounded-xl bg-white/80 p-2 text-center shadow-sm">
                           <span className="block text-[9px] uppercase text-slate-400 font-black">
@@ -1193,11 +2756,11 @@ const Index = () => {
                           </span>
                         </div>
                       </div>
-                      
+
                       <p className="mt-3 text-xs font-bold text-slate-600">
                         <span className="text-[#2E7D32]">{language === "kn" ? "ದರ್ಜೆ" : "Grade"}:</span> {l.grade}
                       </p>
-                      
+
                       {/* Expandable Farmer Detail Panel */}
                       <div className={`overflow-hidden transition-all duration-300 ${isExpanded ? "max-h-36 opacity-100 mt-3" : "max-h-0 opacity-0"}`}>
                         <div className="border-t border-[#2E7D32]/10 pt-3 space-y-2">
@@ -1215,7 +2778,7 @@ const Index = () => {
                           </a>
                         </div>
                       </div>
-                      
+
                       {/* Dropdown Chevron indicator */}
                       <div className="mt-2 text-center text-slate-400">
                         <ChevronDown className={`mx-auto size-3.5 transition-transform duration-300 ${isExpanded ? "rotate-180 text-[#2E7D32]" : ""}`} />
@@ -1232,23 +2795,23 @@ const Index = () => {
             <div className="border-t border-glass-border pt-6" />
             <div>
               <h2 className="flex items-center gap-2 font-display text-2xl font-black text-primary">
-                <Users className="size-7" /> 
+                <Users className="size-7" />
                 {language === "kn" ? "FPO ಮೂಲಕ ಸಗಟು ಖರೀದಿ (B2B)" : "Bulk Purchase via FPO (B2B)"}
               </h2>
               <p className="text-xs font-bold text-muted-foreground mt-0.5">
                 {language === "kn" ? "ನೋಂದಾಯಿತ ರೈತ ಉತ್ಪಾದಕ ಸಂಸ್ಥೆಗಳಿಂದ ಸಗಟು ಪ್ರಮಾಣದ ಕೃಷಿ ಉತ್ಪನ್ನಗಳ ನೇರ ಸಂಗ್ರಹಣೆ." : "Procure large-scale lots securely with registered Farmer Producer Organizations."}
               </p>
             </div>
-            
+
             <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
               {fpoBulkLots.map(fpo => {
                 const l = fpo[language];
                 const tons = fpoTons[fpo.id] || fpo.min_order_quantity_tons;
                 const totalPrice = tons * fpo.price_per_ton;
-                
+
                 return (
-                  <article 
-                    key={fpo.id} 
+                  <article
+                    key={fpo.id}
                     className="flex flex-col rounded-3xl border border-glass-border bg-card p-5 shadow-glass transition-all hover:shadow-card"
                   >
                     {/* Icon and trust badge */}
@@ -1269,7 +2832,7 @@ const Index = () => {
                         )}
                       </div>
                     </div>
-                    
+
                     {/* FPO Registration Title */}
                     <div className="space-y-1">
                       <h3 className="font-display text-base font-black leading-tight text-slate-800">
@@ -1306,7 +2869,7 @@ const Index = () => {
                           {tons.toFixed(1)} {language === "kn" ? "ಟನ್" : "Tons"}
                         </span>
                       </div>
-                      
+
                       <input
                         type="range"
                         min={fpo.min_order_quantity_tons}
@@ -1319,7 +2882,7 @@ const Index = () => {
                         }}
                         className="w-full h-2 bg-[#E8F5E9] rounded-lg appearance-none cursor-pointer accent-[#2E7D32]"
                       />
-                      
+
                       <div className="flex justify-between text-[9px] font-bold text-slate-500">
                         <span>{language === "kn" ? "ಕನಿಷ್ಠ" : "Min"}: {fpo.min_order_quantity_tons}T</span>
                         <span>{language === "kn" ? "ಲಭ್ಯ" : "Available"}: {fpo.total_available_tons}T</span>
@@ -1348,7 +2911,7 @@ const Index = () => {
                           </span>
                         </div>
                       </div>
-                      <a 
+                      <a
                         href={`tel:+918888888888`}
                         className="mt-3 flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-white text-[#2E7D32] text-xs font-black shadow-sm hover:bg-[#E8F5E9] transition-colors"
                       >
@@ -1381,15 +2944,72 @@ const Index = () => {
 
             {selectedScheme && <div className="space-y-3 font-bold"><p className="text-5xl">{selectedScheme[language].icon}</p><p className="inline-flex rounded-full bg-accent/35 px-3 py-1 text-xs font-black text-accent-foreground">{selectedScheme[language].tag}</p><p className="rounded-2xl bg-secondary/35 p-3"><span className="block text-xs uppercase text-muted-foreground">{t.benefit}</span>{selectedScheme[language].benefit}</p><p><span className="text-primary">{t.eligibility}: </span>{selectedScheme[language].eligibility}</p><p className="text-muted-foreground">{selectedScheme[language].description}</p><ol className="list-decimal space-y-1 pl-5 text-muted-foreground"><li>{language === "kn" ? "FRUITS ಐಡಿ ಮತ್ತು ಆಧಾರ್ ಪರಿಶೀಲಿಸಿ" : "Verify FRUITS ID and Aadhaar"}</li><li>{language === "kn" ? "ಭೂಮಿ ಮತ್ತು ಬೆಳೆ ವಿವರಗಳನ್ನು ಸೇರಿಸಿ" : "Add land and crop details"}</li><li>{language === "kn" ? "ಹತ್ತಿರದ ಕೃಷಿ ಕಚೇರಿಗೆ ಸಲ್ಲಿಸಿ" : "Submit through local agriculture office"}</li></ol><Button variant="field" className="w-full rounded-full" onClick={() => { setApplyingScheme(selectedScheme); setSelectedScheme(null); }}>{t.apply}</Button></div>}
 
-            {applyingScheme && <form className="grid gap-3 font-bold"><p className="text-5xl">{applyingScheme[language].icon}</p>{[language === "kn" ? "ಹೆಸರು" : "Name", "Aadhaar", language === "kn" ? "ಕೃಷಿ ಸ್ಥಳ" : "Farm location", language === "kn" ? "ಬೆಳೆ" : "Crop"].map((label) => <label key={label} className="grid gap-1 text-sm"><span>{label}</span><input required defaultValue={label === (language === "kn" ? "ಕೃಷಿ ಸ್ಥಳ" : "Farm location") ? "Mysuru" : ""} className="h-11 rounded-full border border-input bg-background px-4 outline-none focus:ring-2 focus:ring-ring" /></label>)}<Button type="submit" variant="field" className="mt-2 rounded-full">{language === "kn" ? "ಅರ್ಜಿಯನ್ನು ಸಲ್ಲಿಸಿ" : "Submit application"}</Button></form>}
+            {applyingScheme && (
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  toast.success(
+                    language === "kn" 
+                      ? "ಯೋಜನೆಯ ಅರ್ಜಿಯನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಸಲ್ಲಿಸಲಾಗಿದೆ!" 
+                      : language === "hi" 
+                      ? "योजना आवेदन सफलतापूर्वक सबमिट किया गया!" 
+                      : "Scheme application submitted successfully!"
+                  );
+                  setApplyingScheme(null);
+                  navigateTo("farmer", "schemes");
+                }}
+                className="grid gap-3 font-bold"
+              >
+                <p className="text-5xl">{applyingScheme[language].icon}</p>
+                {[language === "kn" ? "ಹೆಸರು" : "Name", "Aadhaar", language === "kn" ? "ಕೃಷಿ ಸ್ಥಳ" : "Farm location", language === "kn" ? "ಬೆಳೆ" : "Crop"].map((label) => (
+                  <label key={label} className="grid gap-1 text-sm">
+                    <span>{label}</span>
+                    <input required defaultValue={label === (language === "kn" ? "ಕೃಷಿ ಸ್ಥಳ" : "Farm location") ? "Mysuru" : ""} className="h-11 rounded-full border border-input bg-background px-4 outline-none focus:ring-2 focus:ring-ring" />
+                  </label>
+                ))}
+                <Button type="submit" variant="field" className="mt-2 rounded-full">
+                  {language === "kn" ? "ಅರ್ಜಿಯನ್ನು ಸಲ್ಲಿಸಿ" : "Submit application"}
+                </Button>
+              </form>
+            )}
 
             {selectedCrop && <div className="space-y-4 font-bold"><div className="flex items-center gap-4"><span className="text-6xl">{selectedCrop[language].icon}</span><div><p className="text-2xl">{selectedCrop.flags}</p><p className="text-muted-foreground">{selectedCrop[language].destination}</p></div></div><div className="grid gap-3 sm:grid-cols-3"><p className="rounded-2xl bg-secondary/35 p-3"><span className="block text-xs uppercase text-muted-foreground">Demand</span>{selectedCrop[language].demand}</p><p className="rounded-2xl bg-card p-3 text-success shadow-control"><span className="block text-xs uppercase text-muted-foreground">{t.profit}</span>{selectedCrop[language].profit}</p><p className="rounded-2xl bg-accent/35 p-3"><span className="block text-xs uppercase text-muted-foreground">Tag</span>{selectedCrop[language].tag}</p></div><p><span className="text-primary">{t.reason}: </span>{selectedCrop[language].reason}</p><Button variant="field" className="w-full rounded-full" onClick={() => { setSellingCrop(selectedCrop); setSelectedCrop(null); }}>{language === "kn" ? "ರಫ್ತು ಬೆಳೆ ಮಾರಾಟ" : "Sell Export Produce"}</Button></div>}
 
-            {sellingCrop && <form className="grid gap-3 font-bold"><p className="text-5xl">{sellingCrop[language].icon}</p>{[language === "kn" ? "ರೈತನ ಹೆಸರು" : "Farmer name", language === "kn" ? "ಫೋನ್ ಸಂಖ್ಯೆ" : "Phone number", language === "kn" ? "ಲಭ್ಯ ಪ್ರಮಾಣ" : "Available quantity", language === "kn" ? "ಗ್ರಾಮ / ತಾಲ್ಲೂಕು" : "Village / Taluk"].map((label) => <label key={label} className="grid gap-1 text-sm"><span>{label}</span><input required className="h-11 rounded-full border border-input bg-background px-4 outline-none focus:ring-2 focus:ring-ring" /></label>)}<p className="rounded-2xl bg-secondary/35 p-3 text-sm">{sellingCrop.flags} {sellingCrop[language].destination}</p><Button type="submit" variant="field" className="mt-2 rounded-full">{language === "kn" ? "ಖರೀದಿದಾರರೊಂದಿಗೆ ಸಂಪರ್ಕಿಸಿ" : "Connect with buyers"}</Button></form>}
+            {sellingCrop && (
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  toast.success(
+                    language === "kn" 
+                      ? "ನಿಮ್ಮ ರಫ್ತು ಉತ್ಪನ್ನವನ್ನು ಜಾಗತಿಕ ಖರೀದಿದಾರರಿಗೆ ಯಶಸ್ವಿಯಾಗಿ ಸಲ್ಲಿಸಲಾಗಿದೆ!" 
+                      : language === "hi" 
+                      ? "आपका निर्यात उत्पाद वैश्विक खरीदारों को सफलतापूर्वक प्रस्तुत किया गया है!" 
+                      : "Your export product has been successfully submitted to global buyers!"
+                  );
+                  setSellingCrop(null);
+                  navigateTo("farmer", "export");
+                }}
+                className="grid gap-3 font-bold"
+              >
+                <p className="text-5xl">{sellingCrop[language].icon}</p>
+                {[language === "kn" ? "ರೈತನ ಹೆಸರು" : "Farmer name", language === "kn" ? "ಫೋನ್ ಸಂಖ್ಯೆ" : "Phone number", language === "kn" ? "ಲಭ್ಯ ಪ್ರಮಾಣ" : "Available quantity", language === "kn" ? "ಗ್ರಾಮ / ತಾಲ್ಲೂಕು" : "Village / Taluk"].map((label) => (
+                  <label key={label} className="grid gap-1 text-sm">
+                    <span>{label}</span>
+                    <input required className="h-11 rounded-full border border-input bg-background px-4 outline-none focus:ring-2 focus:ring-ring" />
+                  </label>
+                ))}
+                <p className="rounded-2xl bg-secondary/35 p-3 text-sm">{sellingCrop.flags} {sellingCrop[language].destination}</p>
+                <Button type="submit" variant="field" className="mt-2 rounded-full">
+                  {language === "kn" ? "ಖರೀದಿದಾರರೊಂದಿಗೆ ಸಂಪರ್ಕಿಸಿ" : "Connect with buyers"}
+                </Button>
+              </form>
+            )}
           </div>
         </div>
       )}
 
+
+      <KrishiVoiceAssistant isOpen={isVoiceAssistantOpen} onClose={() => setIsVoiceAssistantOpen(false)} language={language} />
     </main>
   );
 };
