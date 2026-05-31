@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { FieldIntelligencePanel } from "@/components/FieldIntelligencePanel";
 import { KrishiMap } from "@/components/KrishiMap";
+import { AgriLearningHub } from "@/components/AgriLearningHub";
 import { getRegionContent, Language, RegionId, regions } from "@/data/krishiMysuru";
 import { fpos } from "@/data/fpos";
 import { buyerListings, fpoBulkLots, activeTracking, trackingLabels, type Listing } from "@/data/buyerData";
 import { rentalVehicles } from "@/data/marketData";
+import { FarmEquipmentHub } from "@/components/FarmEquipmentHub";
 import { availableLabour } from "@/data/labourCrewData";
 import { getCrops } from "@/services/cropService";
 import { sendOTP, verifyOTP, logout as supabaseLogout, loginWithEmail, signupWithEmail } from "@/services/authService";
@@ -20,7 +22,7 @@ import { toast } from "sonner";
 
 type AuthRole = "farmer" | "buyer" | "labourer";
 type Role = "home" | "farmer" | "buyer" | "labourer" | "farmerAuth" | "buyerAuth" | "labourerAuth" | "farmerProfile";
-type FarmerTab = "field" | "export" | "market" | "rent" | "fpo" | "labour" | "schemes";
+type FarmerTab = "field" | "export" | "market" | "rent" | "fpo" | "labour" | "schemes" | "learning";
 type ViewState = { role: Role; farmerTab: FarmerTab };
 type SchemeContent = { title: string; benefit: string; eligibility: string; description: string; tag: string; icon: string };
 type Scheme = Record<Language, SchemeContent> & { id: string };
@@ -34,7 +36,7 @@ const copy = {
     sub: "A smart farming companion for crops, climate, prices, buyers, labour and schemes.",
     farmer: "I am a Farmer", buyer: "I am a Buyer", labourer: "I am a Labourer", voice: "Voice help",
     stats: ["₹3,250/qtl tomato", "UAE demand ↑", "Ginger best crop"],
-    tabs: { field: "Field Intelligence", export: "Export", market: "Prices", rent: "Rent", fpo: "FPO", labour: "Labour", schemes: "Schemes" },
+    tabs: { field: "Field Intelligence", export: "Export", market: "Prices", rent: "Rent", fpo: "FPO", labour: "Labour", schemes: "Schemes", learning: "Learning Hub" },
     demand: "High Demand Crops Abroad", climate: "Climate & Prediction", market: "Market Intelligence", direct: "Direct Selling", fpo: "Farmer Groups", labour: "Labour Marketplace", schemes: "Government Schemes",
     best: "Best crop this month", sellNow: "Best time to sell", apply: "Apply now", contact: "Contact farmer", nearby: "Nearby jobs", wage: "Daily wage", track: "Order tracking", browse: "Browse crops",
     benefit: "Benefit", eligibility: "Eligibility", details: "Details", destination: "Target countries", profit: "Profit", reason: "Reason for demand",
@@ -45,7 +47,7 @@ const copy = {
     sub: "ಬೆಳೆ, ಹವಾಮಾನ, ಬೆಲೆ, ಖರೀದಿದಾರರು, ಕಾರ್ಮಿಕರು ಮತ್ತು ಯೋಜನೆಗಳಿಗೆ ಕೃಷಿ ಸಹಾಯಕ.",
     farmer: "ನಾನು ರೈತ", buyer: "ನಾನು ಖರೀದಿದಾರ", labourer: "ನಾನು ಕಾರ್ಮಿಕ", voice: "ಧ್ವನಿ ಸಹಾಯ",
     stats: ["ಟೊಮೆಟೊ ₹3,250/qtl", "UAE ಬೇಡಿಕೆ ↑", "ಶುಂಠಿ ಉತ್ತಮ ಬೆಳೆ"],
-    tabs: { field: "ಕ್ಷೇತ್ರ ಮಾಹಿತಿ", export: "ರಫ್ತು", market: "ಬೆಲೆಗಳು", rent: "ಬಾಡಿಗೆ", fpo: "FPO", labour: "ಕಾರ್ಮಿಕ", schemes: "ಯೋಜನೆಗಳು" },
+    tabs: { field: "ಕ್ಷೇತ್ರ ಮಾಹಿತಿ", export: "ರಫ್ತು", market: "ಬೆಲೆಗಳು", rent: "ಬಾಡಿಗೆ", fpo: "FPO", labour: "ಕಾರ್ಮಿಕ", schemes: "ಯೋಜನೆಗಳು", learning: "ಕಲಿಕಾ ಕೇಂದ್ರ" },
     demand: "ವಿದೇಶದಲ್ಲಿ ಹೆಚ್ಚು ಬೇಡಿಕೆಯ ಬೆಳೆಗಳು", climate: "ಹವಾಮಾನ ಮತ್ತು ಮುನ್ಸೂಚನೆ", market: "ಮಾರುಕಟ್ಟೆ ಮಾಹಿತಿ", direct: "ನೇರ ಮಾರಾಟ", fpo: "ರೈತ ಗುಂಪುಗಳು", labour: "ಕಾರ್ಮಿಕ ಮಾರುಕಟ್ಟೆ", schemes: "ಸರ್ಕಾರಿ ಯೋಜನೆಗಳು",
     best: "ಈ ತಿಂಗಳ ಉತ್ತಮ ಬೆಳೆ", sellNow: "ಮಾರಾಟಕ್ಕೆ ಉತ್ತಮ ಸಮಯ", apply: "ಈಗ ಅರ್ಜಿ", contact: "ರೈತನನ್ನು ಸಂಪರ್ಕಿಸಿ", nearby: "ಹತ್ತಿರದ ಕೆಲಸಗಳು", wage: "ದಿನ ಕೂಲಿ", track: "ಆರ್ಡರ್ ಟ್ರ್ಯಾಕಿಂಗ್", browse: "ಬೆಳೆಗಳನ್ನು ನೋಡಿ",
     benefit: "ಲಾಭ", eligibility: "ಅರ್ಹತೆ", details: "ವಿವರಗಳು", destination: "ಗುರಿ ದೇಶಗಳು", profit: "ಲಾಭ", reason: "ಬೇಡಿಕೆಯ ಕಾರಣ",
@@ -56,7 +58,7 @@ const copy = {
     sub: "फसल, मौसम, कीमत, खरीदार, मजदूर और योजनाओं के लिए स्मार्ट कृषि साथी।",
     farmer: "मैं किसान हूँ", buyer: "मैं खरीदार हूँ", labourer: "मैं मजदूर हूँ", voice: "वॉयस सहायता",
     stats: ["टमाटर ₹3,250/qtl", "UAE मांग ↑", "अदरक श्रेष्ठ फसल"],
-    tabs: { field: "फील्ड इंटेलिजेंस", export: "निर्यात", market: "कीमतें", rent: "किराया", fpo: "FPO", labour: "मजदूर", schemes: "योजनाएँ" },
+    tabs: { field: "फील्ड इंटेलिजेंस", export: "निर्यात", market: "कीमतें", rent: "किराया", fpo: "FPO", labour: "मजदूर", schemes: "योजनाएँ", learning: "शिक्षण केंद्र" },
     demand: "विदेश में अधिक मांग वाली फसलें", climate: "मौसम और पूर्वानुमान", market: "बाज़ार जानकारी", direct: "सीधी बिक्री", fpo: "किसान समूह", labour: "मजदूर बाज़ार", schemes: "सरकारी योजनाएँ",
     best: "इस महीने की श्रेष्ठ फसल", sellNow: "बेचने का अच्छा समय", apply: "अभी आवेदन", contact: "किसान से संपर्क", nearby: "नज़दीकी काम", wage: "दैनिक मज़दूरी", track: "ऑर्डर ट्रैकिंग", browse: "फसलें देखें",
     benefit: "लाभ", eligibility: "पात्रता", details: "विवरण", destination: "लक्ष्य देश", profit: "लाभ", reason: "मांग का कारण",
@@ -1532,52 +1534,7 @@ const Index = () => {
   };
 
   const renderRentalVehicles = () => (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-4 rounded-[1.5rem] border border-glass-border bg-card/88 p-5 shadow-control backdrop-blur-panel sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="font-display text-xl font-black text-primary">Rent Vehicles / Logistics Marketplace</h2>
-          <p className="text-sm font-bold text-muted-foreground">Find transport for your harvest</p>
-        </div>
-        <div className="flex items-center gap-3 rounded-full border border-input bg-background p-2">
-          <label htmlFor="distance" className="pl-3 text-sm font-bold text-muted-foreground">Distance (KM):</label>
-          <input id="distance" type="number" min="1" max="1000" value={rentDistance} onChange={(e) => setRentDistance(Number(e.target.value) || 10)} className="w-20 rounded-full bg-secondary/30 px-3 py-1 font-black outline-none focus:ring-2 focus:ring-ring" />
-        </div>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {rentalVehicles.map(vehicle => {
-          const v = vehicle[language as "en" | "kn" | "hi"] || vehicle.en;
-          const typeName = vehicle[('type_' + language) as keyof typeof vehicle] || vehicle.type_en;
-          const totalFare = vehicle.base_fare + (rentDistance * vehicle.per_km_charge);
-
-          return (
-            <article key={vehicle.vehicle_id} className="flex flex-col rounded-[1.5rem] border border-glass-border bg-card p-5 shadow-control transition-shadow hover:shadow-glass">
-              <div className="mb-4 flex items-start justify-between">
-                <span className="text-4xl">{vehicle.icon}</span>
-                <span className="inline-flex rounded-full bg-accent/20 px-3 py-1 text-xs font-black text-accent-foreground">{vehicle.capacity}</span>
-              </div>
-              <h3 className="font-display text-lg font-black leading-tight">{String(typeName)}</h3>
-              <p className="mt-1 flex items-center gap-1 text-xs font-bold text-muted-foreground"><MapPin className="size-3 text-primary" /> {v.current_location}</p>
-
-              <div className="mt-4 rounded-2xl bg-secondary/35 p-4 text-center">
-                <p className="text-xs font-black uppercase text-muted-foreground">Estimated Fare</p>
-                <p className="font-display text-2xl font-black text-primary"><IndianRupee className="inline size-5" />{totalFare.toLocaleString()}</p>
-                <p className="mt-1 text-xs font-bold text-muted-foreground">Base ₹{vehicle.base_fare} + ₹{vehicle.per_km_charge}/km</p>
-              </div>
-
-              <div className="mt-4 flex flex-col gap-2 border-t border-glass-border pt-4">
-                <p className="flex items-center justify-between text-sm font-bold"><span className="text-muted-foreground">Driver</span> {v.driver_name}</p>
-                <p className="flex items-center justify-between text-sm font-bold"><span className="text-muted-foreground">Rating</span> <span>⭐ {vehicle.rating}</span></p>
-                {vehicle.labour_available && <p className="flex items-center justify-between text-sm font-bold"><span className="text-muted-foreground">Loading Labour</span> <CheckCircle className="size-4 text-success" /></p>}
-              </div>
-
-              <a href={`tel:${vehicle.phone}`} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-primary font-black text-primary-foreground shadow-control transition-transform hover:-translate-y-0.5">
-                <Phone className="size-4" /> Call to Book Vehicle
-              </a>
-            </article>
-          );
-        })}
-      </div>
-    </div>
+    <FarmEquipmentHub language={language} />
   );
 
   const renderRecruitLabour = () => {
@@ -2366,6 +2323,8 @@ const Index = () => {
             renderRentalVehicles()
           ) : farmerTab === "labour" ? (
             renderRecruitLabour()
+          ) : farmerTab === "learning" ? (
+            <AgriLearningHub farmerProfile={farmerProfile} language={language} />
           ) : null}
         </section>
       )}
