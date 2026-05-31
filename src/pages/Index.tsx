@@ -13,6 +13,7 @@ import { getRegionContent, Language, RegionId, regions } from "@/data/krishiMysu
 import { fpos } from "@/data/fpos";
 import { buyerListings, fpoBulkLots, activeTracking, trackingLabels, type Listing } from "@/data/buyerData";
 import { rentalVehicles } from "@/data/marketData";
+import { FarmEquipmentHub } from "@/components/FarmEquipmentHub";
 import { availableLabour } from "@/data/labourCrewData";
 import { getCrops } from "@/services/cropService";
 import { sendOTP, verifyOTP, logout as supabaseLogout, loginWithEmail, signupWithEmail } from "@/services/authService";
@@ -1533,52 +1534,7 @@ const Index = () => {
   };
 
   const renderRentalVehicles = () => (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-4 rounded-[1.5rem] border border-glass-border bg-card/88 p-5 shadow-control backdrop-blur-panel sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="font-display text-xl font-black text-primary">Rent Vehicles / Logistics Marketplace</h2>
-          <p className="text-sm font-bold text-muted-foreground">Find transport for your harvest</p>
-        </div>
-        <div className="flex items-center gap-3 rounded-full border border-input bg-background p-2">
-          <label htmlFor="distance" className="pl-3 text-sm font-bold text-muted-foreground">Distance (KM):</label>
-          <input id="distance" type="number" min="1" max="1000" value={rentDistance} onChange={(e) => setRentDistance(Number(e.target.value) || 10)} className="w-20 rounded-full bg-secondary/30 px-3 py-1 font-black outline-none focus:ring-2 focus:ring-ring" />
-        </div>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {rentalVehicles.map(vehicle => {
-          const v = vehicle[language as "en" | "kn" | "hi"] || vehicle.en;
-          const typeName = vehicle[('type_' + language) as keyof typeof vehicle] || vehicle.type_en;
-          const totalFare = vehicle.base_fare + (rentDistance * vehicle.per_km_charge);
-
-          return (
-            <article key={vehicle.vehicle_id} className="flex flex-col rounded-[1.5rem] border border-glass-border bg-card p-5 shadow-control transition-shadow hover:shadow-glass">
-              <div className="mb-4 flex items-start justify-between">
-                <span className="text-4xl">{vehicle.icon}</span>
-                <span className="inline-flex rounded-full bg-accent/20 px-3 py-1 text-xs font-black text-accent-foreground">{vehicle.capacity}</span>
-              </div>
-              <h3 className="font-display text-lg font-black leading-tight">{String(typeName)}</h3>
-              <p className="mt-1 flex items-center gap-1 text-xs font-bold text-muted-foreground"><MapPin className="size-3 text-primary" /> {v.current_location}</p>
-
-              <div className="mt-4 rounded-2xl bg-secondary/35 p-4 text-center">
-                <p className="text-xs font-black uppercase text-muted-foreground">Estimated Fare</p>
-                <p className="font-display text-2xl font-black text-primary"><IndianRupee className="inline size-5" />{totalFare.toLocaleString()}</p>
-                <p className="mt-1 text-xs font-bold text-muted-foreground">Base ₹{vehicle.base_fare} + ₹{vehicle.per_km_charge}/km</p>
-              </div>
-
-              <div className="mt-4 flex flex-col gap-2 border-t border-glass-border pt-4">
-                <p className="flex items-center justify-between text-sm font-bold"><span className="text-muted-foreground">Driver</span> {v.driver_name}</p>
-                <p className="flex items-center justify-between text-sm font-bold"><span className="text-muted-foreground">Rating</span> <span>⭐ {vehicle.rating}</span></p>
-                {vehicle.labour_available && <p className="flex items-center justify-between text-sm font-bold"><span className="text-muted-foreground">Loading Labour</span> <CheckCircle className="size-4 text-success" /></p>}
-              </div>
-
-              <a href={`tel:${vehicle.phone}`} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-primary font-black text-primary-foreground shadow-control transition-transform hover:-translate-y-0.5">
-                <Phone className="size-4" /> Call to Book Vehicle
-              </a>
-            </article>
-          );
-        })}
-      </div>
-    </div>
+    <FarmEquipmentHub language={language} />
   );
 
   const renderRecruitLabour = () => {
